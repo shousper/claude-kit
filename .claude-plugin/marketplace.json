@@ -1,0 +1,15 @@
+{
+  "name": "shousper-kit",
+  "description": "Personal Claude Code toolkit",
+  "owner": {
+    "name": "shousper"
+  },
+  "plugins": [
+    {
+      "name": "kit",
+      "description": "Skills, commands, hooks, and agents for my workflow",
+      "version": "1.0.0",
+      "source": "./"
+    }
+  ]
+}

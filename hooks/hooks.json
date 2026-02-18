@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/gofmt.sh" }] },
+      { "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/eslint.sh" }] },
+      { "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/typescript.sh" }] },
+      { "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/clippy.sh" }] },
+      { "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cargo-check.sh" }] },
+      { "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/rustfmt.sh" }] }
+    ],
+    "SessionStart": [
+      { "matcher": "startup|resume|clear|compact", "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh", "async": false }] }
+    ]
+  }
+}
