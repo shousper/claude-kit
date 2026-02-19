@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "kit",
-      "description": "Skills, commands, hooks, and agents for my workflow",
+      "description": "Skills, hooks, and agents for a review-first development workflow",
       "version": "1.0.0",
       "source": "./"
     }

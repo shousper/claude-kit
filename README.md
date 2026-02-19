@@ -7,7 +7,11 @@ A Claude Code plugin that provides a complete development workflow — from brai
 ## Install
 
 ```bash
-/install-plugin shousper/claude-kit
+# Add the marketplace
+/plugin marketplace add shousper/claude-kit
+
+# Install the plugin
+/plugin install kit@shousper-claude-kit
 ```
 
 ## Recommended Plugins
@@ -16,10 +20,12 @@ None are required, but these complement kit well:
 
 | Plugin | Provides | Install |
 |--------|----------|---------|
-| [commit-commands](https://github.com/anthropics/claude-code-plugins) | `/commit` command for conventional commits | `/install-plugin commit-commands` |
-| [claude-mem](https://github.com/thedotmack/claude-mem) | Persistent memory across sessions via automatic observation capture and semantic search | `/install-plugin thedotmack/claude-mem` |
-| [pr-review-toolkit](https://github.com/anthropics/claude-code-plugins) | PR-focused review agents (silent failure hunting, type analysis, test coverage) | `/install-plugin pr-review-toolkit` |
-| [code-review](https://github.com/anthropics/claude-code-plugins) | General code quality review agent | `/install-plugin code-review` |
+| [commit-commands](https://github.com/anthropics/claude-code-plugins) | `/commit` command for conventional commits | `commit-commands@claude-code-plugins` |
+| [claude-mem](https://github.com/thedotmack/claude-mem) | Persistent memory across sessions via automatic observation capture and semantic search | `claude-mem@thedotmack` |
+| [pr-review-toolkit](https://github.com/anthropics/claude-code-plugins) | PR-focused review agents (silent failure hunting, type analysis, test coverage) | `pr-review-toolkit@claude-code-plugins` |
+| [code-review](https://github.com/anthropics/claude-code-plugins) | General code quality review agent | `code-review@claude-code-plugins` |
+
+Install with `/plugin marketplace add <repo>` then `/plugin install <name>@<marketplace>`.
 
 ## Workflow
 
