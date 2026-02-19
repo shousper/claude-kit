@@ -61,9 +61,8 @@ git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/d
 
 **If NOT ignored:**
 
-Per Jesse's rule "Fix broken things immediately":
-1. Add appropriate line to .gitignore
-2. Commit the change
+1. Add appropriate line to .gitignore (e.g., `.worktrees/` or `worktrees/`)
+2. Inform your human partner: ".gitignore updated to exclude worktree directory. This change is not committed — commit when ready."
 3. Proceed with worktree creation
 
 **Why critical:** Prevents accidentally committing worktree contents to repository.
@@ -148,8 +147,8 @@ Ready to implement <feature-name>
 | `.worktrees/` exists | Use it (verify ignored) |
 | `worktrees/` exists | Use it (verify ignored) |
 | Both exist | Use `.worktrees/` |
-| Neither exists | Check CLAUDE.md -> Ask user |
-| Directory not ignored | Add to .gitignore + commit |
+| Neither exists | Check CLAUDE.md → Ask user |
+| Directory not ignored | Add to .gitignore + inform user |
 | Tests fail during baseline | Report failures + ask |
 | No package.json/Cargo.toml | Skip dependency install |
 
@@ -186,7 +185,7 @@ You: I'm using the git-worktrees skill to set up an isolated workspace.
 [Run npm install]
 [Run npm test - 47 passing]
 
-Worktree ready at /Users/jesse/myproject/.worktrees/auth
+Worktree ready at <project-root>/.worktrees/auth
 Tests passing (47 tests, 0 failures)
 Ready to implement auth feature
 ```
@@ -209,10 +208,9 @@ Ready to implement auth feature
 ## Integration
 
 **Called by:**
-- **brainstorming** (Phase 4) - REQUIRED when design is approved and implementation follows
-- **team-dev** - REQUIRED before executing any tasks
+- **brainstorming** - REQUIRED when design is approved and implementation follows
 - **executing-plans** - REQUIRED before executing any tasks
 - Any skill needing isolated workspace
 
 **Pairs with:**
-- **finish-branch** - REQUIRED for cleanup after work complete
+- **worktree-cleanup** - REQUIRED for cleanup after work complete

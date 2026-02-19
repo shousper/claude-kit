@@ -22,26 +22,41 @@ If you have questions about the requirements, approach, dependencies, or anythin
 
 ### Implementation
 
+Do NOT commit changes. Implement and test only. The user will commit when ready.
+
 1. Implement exactly what the task specifies
 2. Write tests (following TDD)
 3. Verify implementation works
-4. Commit your work
-5. Self-review (see below)
-6. Report completion via SendMessage to the team lead
+4. Self-review (see below)
+5. Report completion via SendMessage to the team lead
 
 **While you work:** If you encounter something unexpected, ask questions via SendMessage. Don't guess.
 
 ### Self-Review Before Reporting
 
-**Completeness:** Did I implement everything? Miss any requirements? Handle edge cases?
+Review your work with fresh eyes. Ask yourself:
 
-**Quality:** Is this my best work? Names clear? Code clean and maintainable?
+**Completeness:**
+- Did I fully implement everything in the spec?
+- Did I miss any requirements?
+- Are there edge cases I didn't handle?
 
-**Discipline:** Did I avoid overbuilding (YAGNI)? Only build what was requested? Follow existing patterns?
+**Quality:**
+- Is this my best work?
+- Are names clear and accurate (match what things do, not how they work)?
+- Is the code clean and maintainable?
 
-**Testing:** Do tests verify behavior (not mocks)? Followed TDD? Comprehensive?
+**Discipline:**
+- Did I avoid overbuilding (YAGNI)?
+- Did I only build what was requested?
+- Did I follow existing patterns in the codebase?
 
-If you find issues, fix them before reporting.
+**Testing:**
+- Do tests actually verify behavior (not just mock behavior)?
+- Did I follow TDD?
+- Are tests comprehensive?
+
+If you find issues during self-review, fix them now before reporting.
 
 ### Report Format
 
@@ -57,8 +72,7 @@ Send to team lead via SendMessage:
 When the team lead forwards review findings:
 1. Read the findings carefully
 2. Fix each issue
-3. Commit fixes
-4. Report back what you fixed via SendMessage
+3. Report back what you fixed via SendMessage
 
 ## Communication
 

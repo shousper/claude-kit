@@ -7,114 +7,174 @@ description: Use when facing 2+ independent tasks that can be worked on without 
 
 ## Overview
 
-When you have multiple unrelated problems (different test files, different subsystems, different bugs), investigating them sequentially wastes time. Use a team to coordinate parallel work with shared task lists and mid-task communication.
+When you have multiple unrelated failures (different test files, different subsystems, different bugs), investigating them sequentially wastes time. Each investigation is independent and can happen in parallel.
 
-**Core principle:** One teammate per independent problem domain. Team coordination for progress tracking and communication.
+**Core principle:** Dispatch one agent per independent problem domain. Let them work concurrently.
 
 ## When to Use
 
 ```dot
 digraph when_to_use {
-    "Multiple problems?" [shape=diamond];
+    "Multiple failures?" [shape=diamond];
     "Are they independent?" [shape=diamond];
     "Single agent investigates all" [shape=box];
-    "One teammate per domain" [shape=box];
+    "One agent per problem domain" [shape=box];
     "Can they work in parallel?" [shape=diamond];
-    "Sequential tasks" [shape=box];
-    "Parallel team" [shape=box];
+    "Sequential agents" [shape=box];
+    "Parallel dispatch" [shape=box];
 
-    "Multiple problems?" -> "Are they independent?" [label="yes"];
+    "Multiple failures?" -> "Are they independent?" [label="yes"];
     "Are they independent?" -> "Single agent investigates all" [label="no - related"];
     "Are they independent?" -> "Can they work in parallel?" [label="yes"];
-    "Can they work in parallel?" -> "Parallel team" [label="yes"];
-    "Can they work in parallel?" -> "Sequential tasks" [label="no - shared state"];
+    "Can they work in parallel?" -> "Parallel dispatch" [label="yes"];
+    "Can they work in parallel?" -> "Sequential agents" [label="no - shared state"];
 }
 ```
 
 **Use when:**
 - 3+ test files failing with different root causes
 - Multiple subsystems broken independently
-- Each problem understood without context from others
+- Each problem can be understood without context from others
 - No shared state between investigations
 
 **Don't use when:**
 - Failures are related (fix one might fix others)
 - Need to understand full system state
-- Teammates would interfere (editing same files)
+- Agents would interfere with each other
 
 ## The Pattern
 
 ### 1. Identify Independent Domains
 
-Group failures by what's broken. Each domain is independent — fixing one doesn't affect others.
+Group failures by what's broken:
+- File A tests: Tool approval flow
+- File B tests: Batch completion behavior
+- File C tests: Abort functionality
 
-### 2. Create Team
+Each domain is independent - fixing tool approval doesn't affect abort tests.
 
-**REQUIRED:** Use kit:team-orchestration to set up the team.
+### 2. Create Focused Agent Tasks
 
-### 3. Spawn Teammates and Assign Work
+Each agent gets:
+- **Specific scope:** One test file or subsystem
+- **Clear goal:** Make these tests pass
+- **Constraints:** Don't change other code
+- **Expected output:** Summary of what you found and fixed
 
-One teammate per domain. Include the task in the spawn prompt so they start immediately. Spawn all teammates in a single message for maximum parallelism.
+### 3. Dispatch in Parallel
 
-Each teammate gets:
-- **Specific scope:** One problem domain
-- **Clear goal:** What to fix/investigate
-- **Constraints:** Don't change unrelated code
-- **Communication:** Ask questions via SendMessage if blocked
-- **Output:** Report summary of root cause and changes
+```typescript
+// In Claude Code / AI environment
+Task("Fix agent-tool-abort.test.ts failures")
+Task("Fix batch-completion-behavior.test.ts failures")
+Task("Fix tool-approval-race-conditions.test.ts failures")
+// All three run concurrently
+```
 
-### 4. Monitor and Coordinate
+### 4. Review and Integrate
 
-- Use `TaskList` to track progress
-- Answer teammate questions via SendMessage as they arise
-- If a teammate finishes early, assign additional work via SendMessage
-- If two teammates discover overlap, they coordinate via DM
-
-### 5. Review and Integrate
-
-When all teammates report:
+When agents return:
 - Read each summary
 - Verify fixes don't conflict
 - Run full test suite
 - Integrate all changes
-- Shutdown team (kit:team-orchestration shutdown protocol)
 
-## Dynamic Rebalancing
+## Agent Prompt Structure
 
-If one teammate finishes before others, send additional work via SendMessage.
+Good agent prompts are:
+1. **Focused** - One clear problem domain
+2. **Self-contained** - All context needed to understand the problem
+3. **Specific about output** - What should the agent return?
 
-## Teammate Prompt Structure
+```markdown
+Fix the 3 failing tests in src/agents/agent-tool-abort.test.ts:
 
-Good teammate prompts are:
-1. **Focused** — one clear problem domain
-2. **Self-contained** — all context needed
-3. **Specific about output** — what to report
-4. **Communication-aware** — ask questions via SendMessage if blocked
+1. "should abort tool with partial output capture" - expects 'interrupted at' in message
+2. "should handle mixed completed and aborted tools" - fast tool aborted instead of completed
+3. "should properly track pendingToolCount" - expects 3 results but gets 0
+
+These are timing/race condition issues. Your task:
+
+1. Read the test file and understand what each test verifies
+2. Identify root cause - timing issues or actual bugs?
+3. Fix by:
+   - Replacing arbitrary timeouts with event-based waiting
+   - Fixing bugs in abort implementation if found
+   - Adjusting test expectations if testing changed behavior
+
+Do NOT just increase timeouts - find the real issue.
+
+Return: Summary of what you found and what you fixed.
+```
 
 ## Common Mistakes
 
-**Too broad:** "Fix all the tests" — teammate gets lost.
-**No context:** "Fix the race condition" — teammate doesn't know where.
-**No constraints:** Teammate might refactor everything.
-**Vague output:** "Fix it" — you don't know what changed.
+**❌ Too broad:** "Fix all the tests" - agent gets lost
+**✅ Specific:** "Fix agent-tool-abort.test.ts" - focused scope
 
-## Advantages Over Raw Task Dispatch
+**❌ No context:** "Fix the race condition" - agent doesn't know where
+**✅ Context:** Paste the error messages and test names
 
-| Feature | Raw Task | Team |
-|---------|----------|------|
-| Mid-task communication | None — wait for return | SendMessage anytime |
-| Progress tracking | Wait for return | TaskList |
-| Dynamic rebalancing | Not possible | Assign via message |
-| Overlap detection | After the fact | Real-time DM |
+**❌ No constraints:** Agent might refactor everything
+**✅ Constraints:** "Do NOT change production code" or "Fix tests only"
+
+**❌ Vague output:** "Fix it" - you don't know what changed
+**✅ Specific:** "Return summary of root cause and changes"
+
+## When NOT to Use
+
+**Related failures:** Fixing one might fix others - investigate together first
+**Need full context:** Understanding requires seeing entire system
+**Exploratory debugging:** You don't know what's broken yet
+**Shared state:** Agents would interfere (editing same files, using same resources)
+
+## Real Example from Session
+
+**Scenario:** 6 test failures across 3 files after major refactoring
+
+**Failures:**
+- agent-tool-abort.test.ts: 3 failures (timing issues)
+- batch-completion-behavior.test.ts: 2 failures (tools not executing)
+- tool-approval-race-conditions.test.ts: 1 failure (execution count = 0)
+
+**Decision:** Independent domains - abort logic separate from batch completion separate from race conditions
+
+**Dispatch:**
+```
+Agent 1 → Fix agent-tool-abort.test.ts
+Agent 2 → Fix batch-completion-behavior.test.ts
+Agent 3 → Fix tool-approval-race-conditions.test.ts
+```
+
+**Results:**
+- Agent 1: Replaced timeouts with event-based waiting
+- Agent 2: Fixed event structure bug (threadId in wrong place)
+- Agent 3: Added wait for async tool execution to complete
+
+**Integration:** All fixes independent, no conflicts, full suite green
+
+**Time saved:** 3 problems solved in parallel vs sequentially
+
+## Key Benefits
+
+1. **Parallelization** - Multiple investigations happen simultaneously
+2. **Focus** - Each agent has narrow scope, less context to track
+3. **Independence** - Agents don't interfere with each other
+4. **Speed** - 3 problems solved in time of 1
 
 ## Verification
 
-After all teammates report:
-1. **Review each summary** — understand what changed
-2. **Check for conflicts** — did teammates edit same code?
-3. **Run full suite** — verify all fixes work together
-4. **Spot check** — teammates can make systematic errors
+After agents return:
+1. **Review each summary** - Understand what changed
+2. **Check for conflicts** - Did agents edit same code?
+3. **Run full suite** - Verify all fixes work together
+4. **Spot check** - Agents can make systematic errors
 
-## Integration
+## Real-World Impact
 
-**Required:** kit:team-orchestration — set up team before starting
+From debugging session (2025-10-03):
+- 6 failures across 3 files
+- 3 agents dispatched in parallel
+- All investigations completed concurrently
+- All fixes integrated successfully
+- Zero conflicts between agent changes

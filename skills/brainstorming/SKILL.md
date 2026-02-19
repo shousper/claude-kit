@@ -12,7 +12,7 @@ Help turn ideas into fully formed designs through collaborative dialogue, enhanc
 Deploy scouts to explore project context in parallel, synthesize their findings, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.
 
 <HARD-GATE>
-Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.
+Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and your human partner has approved it. This applies to EVERY project regardless of perceived simplicity.
 </HARD-GATE>
 
 ## Anti-Pattern: "This Is Too Simple To Need A Design"
@@ -28,13 +28,33 @@ You MUST create a task for each of these items and complete them in order:
 3. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
 4. **Propose 2-3 approaches** — with trade-offs and your recommendation
 5. **Present design** — in sections scaled to their complexity, get user approval after each section
-6. **Write design doc** — save to `docs/plans/YYYY-MM-DD-<topic>-design.md`
-7. **Shutdown team and transition** — shutdown scouts, invoke writing-plans skill
+6. **Create worktree** — on design approval, invoke kit:git-worktrees to create isolated workspace and cd into it
+7. **Write design doc** — save to `docs/plans/YYYY-MM-DD-<topic>-design.md` in the worktree (do NOT commit)
+8. **Shutdown team and transition** — shutdown scouts, invoke kit:writing-plans
+
+## Re-Entry (Same Worktree)
+
+When brainstorming is re-invoked after implementation feedback (already in a worktree):
+
+**Detection:**
+```bash
+# Check if we're in a worktree (not the main working tree)
+git worktree list --porcelain | grep -A2 "$(pwd)"
+```
+
+If already in a worktree:
+- **Skip** scout phase (codebase context already established)
+- **Skip** worktree creation (already in one)
+- Go straight to dialogue with the existing design doc as context
+- Read existing `docs/plans/*-design.md` to understand prior design decisions
+- If multiple design docs exist, read the most recent one (latest date prefix)
+- Write updated/new design doc to same `docs/plans/` directory
 
 ## Process Flow
 
 ```dot
 digraph brainstorming {
+    "Already in worktree?" [shape=diamond];
     "Create team, spawn scouts" [shape=box];
     "Scouts explore in parallel" [shape=box];
     "Synthesize scout findings" [shape=box];
@@ -42,10 +62,13 @@ digraph brainstorming {
     "Propose 2-3 approaches" [shape=box];
     "Present design sections" [shape=box];
     "User approves design?" [shape=diamond];
-    "Write design doc" [shape=box];
+    "Create worktree (kit:git-worktrees)" [shape=box];
+    "Write design doc (no commit)" [shape=box];
     "Shutdown team" [shape=box];
     "Invoke writing-plans skill" [shape=doublecircle];
 
+    "Already in worktree?" -> "Ask clarifying questions" [label="yes — skip scouts"];
+    "Already in worktree?" -> "Create team, spawn scouts" [label="no — fresh start"];
     "Create team, spawn scouts" -> "Scouts explore in parallel";
     "Scouts explore in parallel" -> "Synthesize scout findings";
     "Synthesize scout findings" -> "Ask clarifying questions";
@@ -53,8 +76,10 @@ digraph brainstorming {
     "Propose 2-3 approaches" -> "Present design sections";
     "Present design sections" -> "User approves design?";
     "User approves design?" -> "Present design sections" [label="no, revise"];
-    "User approves design?" -> "Write design doc" [label="yes"];
-    "Write design doc" -> "Shutdown team";
+    "User approves design?" -> "Create worktree (kit:git-worktrees)" [label="yes (fresh start)"];
+    "User approves design?" -> "Write design doc (no commit)" [label="yes (re-entry)"];
+    "Create worktree (kit:git-worktrees)" -> "Write design doc (no commit)";
+    "Write design doc (no commit)" -> "Shutdown team";
     "Shutdown team" -> "Invoke writing-plans skill";
 }
 ```
@@ -63,7 +88,7 @@ digraph brainstorming {
 
 ## Research Scout Phase
 
-**REQUIRED:** Use kit:team-orchestration to create the team.
+**REQUIRED (fresh start only):** Use kit:team-orchestration to create the team.
 
 ### 1. Create Team
 
@@ -81,12 +106,12 @@ Spawn all scouts in a single message for maximum parallelism.
 
 ### 3. Synthesize
 
-Collect all scout reports. Build comprehensive understanding before engaging the user.
+Collect all scout reports. Build comprehensive understanding before engaging your human partner.
 
 ## The Dialogue
 
 **Understanding the idea:**
-- Present synthesized context to the user
+- Present synthesized context to your human partner (or existing design context on re-entry)
 - Ask questions one at a time to refine the idea
 - Prefer multiple choice questions when possible
 - Only one question per message
@@ -104,9 +129,14 @@ Collect all scout reports. Build comprehensive understanding before engaging the
 
 ## After the Design
 
+**Worktree (fresh start only):**
+- Invoke kit:git-worktrees to create worktree and cd into it
+- Branch name: Derive from topic using kebab-case with a feature/ prefix (e.g., feature/auth-system)
+- This is the moment isolation begins
+
 **Documentation:**
 - Write validated design to `docs/plans/YYYY-MM-DD-<topic>-design.md`
-- Save the design document (user will commit when ready)
+- Do NOT commit the design document
 
 **Shutdown:**
 - Shutdown all scout teammates (kit:team-orchestration shutdown protocol)
@@ -123,3 +153,4 @@ Collect all scout reports. Build comprehensive understanding before engaging the
 - **Explore alternatives** — always propose 2-3 approaches
 - **Incremental validation** — get approval before moving on
 - **Scouts enhance, don't replace dialogue** — human conversation is the core
+- **No commits** — design docs are workspace artifacts, not git artifacts

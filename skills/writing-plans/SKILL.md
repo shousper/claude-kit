@@ -7,7 +7,7 @@ description: Use when you have a spec or requirements for a multi-step task, bef
 
 ## Overview
 
-Write comprehensive implementation plans assuming the engineer has zero context for our codebase and questionable taste. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Frequent commits.
+Write comprehensive implementation plans assuming the engineer has zero context for our codebase and questionable taste. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD.
 
 Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don't know good test design very well.
 
@@ -24,7 +24,8 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 - "Run it to make sure it fails" - step
 - "Implement the minimal code to make the test pass" - step
 - "Run the tests and make sure they pass" - step
-- "Commit" - step
+
+**No commit steps.** The user controls when commits happen.
 
 ## Plan Document Header
 
@@ -33,7 +34,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use kit:executing-plans to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use kit:team-dev to implement this plan task-by-task.
 
 **Goal:** [One sentence describing what this builds]
 
@@ -78,39 +79,33 @@ def function(input):
 
 Run: `pytest tests/path/test.py::test_name -v`
 Expected: PASS
-
-**Step 5: Commit**
-
-```bash
-git add tests/path/test.py src/path/file.py
-git commit -m "feat: add specific feature"
-```
 ````
 
 ## Remember
 - Exact file paths always
 - Complete code in plan (not "add validation")
 - Exact commands with expected output
-- Reference relevant skills with @ syntax
-- DRY, YAGNI, TDD, frequent commits
+- Reference relevant skills with kit:skill-name syntax
+- DRY, YAGNI, TDD
+- **No commit steps** — commits are your human partner's decision
+
+## Common Mistakes
+
+- **Vague steps.** "Add validation" is not a step. Show the exact code and the exact test.
+- **Giant tasks.** If a task has more than 8 steps, split it into multiple tasks.
+- **Missing test commands.** Every test step needs the exact run command and expected outcome.
+- **Forgetting file paths.** Every file reference must be an exact path from the repo root. No "the config file" or "the test file."
+- **Skipping the header.** The plan header with Goal/Architecture/Tech Stack is required — it orients the implementer before they read task details.
 
 ## Execution Handoff
 
-After saving the plan, offer execution choice:
+After saving the plan, offer a context compact before proceeding:
 
-**"Plan complete and saved to `docs/plans/<filename>.md`. Two execution options:**
+**"Plan complete and saved to `docs/plans/<filename>.md`.**
 
-**1. Team-Driven (this session)** - I create a team with persistent teammates, parallel reviews, fast iteration
+**Before starting implementation, you may want to clear conversation context:**
+**`/compact Focus on the implementation plan and design decisions for <feature>`**
 
-**2. Parallel Session (separate)** - Open new session with executing-plans, batch execution with checkpoints
+**Ready to proceed with implementation?"**
 
-**Which approach?"**
-
-**If Team-Driven chosen:**
-- **REQUIRED SUB-SKILL:** Use kit:team-dev
-- Stay in this session
-- Persistent teammates + parallel reviews
-
-**If Parallel Session chosen:**
-- Guide them to open new session in worktree
-- **REQUIRED SUB-SKILL:** New session uses kit:executing-plans
+Then proceed directly to kit:team-dev. No execution choice — always same-session.

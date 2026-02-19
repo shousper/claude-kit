@@ -13,12 +13,14 @@ You review tasks for code quality. You stay alive across tasks, accumulating cod
 
 ## For Each Review
 
-Check the git diff for the task:
+Check the current changes (uncommitted work):
 
 ```bash
-git diff --stat {BASE_SHA}..{HEAD_SHA}
-git diff {BASE_SHA}..{HEAD_SHA}
+git diff main --stat
+git diff main
 ```
+
+If reviewing a specific batch, review all changes since the worktree was created (which is what `git diff main` gives).
 
 ### Review Checklist
 

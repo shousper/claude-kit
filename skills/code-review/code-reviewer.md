@@ -17,10 +17,20 @@ You are reviewing code changes for production readiness.
 
 {PLAN_REFERENCE}
 
-## Git Range to Review
+## Changes to Review
 
-**Base:** {BASE_SHA}
-**Head:** {HEAD_SHA}
+### Uncommitted work (default — no-commit workflow)
+
+Review all working-tree changes against main:
+
+```bash
+git diff main --stat
+git diff main
+```
+
+### Committed work (PR review)
+
+If reviewing a range of commits (e.g. during PR review), use SHAs:
 
 ```bash
 git diff --stat {BASE_SHA}..{HEAD_SHA}

@@ -13,6 +13,15 @@ Load plan, create a team with implementer and reviewer teammates, execute tasks 
 
 **Announce at start:** "I'm using the executing-plans skill to implement this plan."
 
+## When to Use
+
+Use executing-plans when:
+- Executing a plan in a NEW session (not continuing from brainstorming)
+- Handed a plan file without prior conversation context
+- Want batch + review workflow without the full brainstorming chain
+
+For same-session execution after brainstorming/writing-plans, use kit:team-dev instead (the default workflow).
+
 ## The Process
 
 ### Step 1: Load and Review Plan
@@ -75,8 +84,8 @@ After all tasks complete and verified:
 ## When to Stop and Ask for Help
 
 **STOP executing immediately when:**
-- Hit a blocker (missing dependency, test fails, instruction unclear)
-- Plan has critical gaps
+- Hit a blocker mid-batch (missing dependency, test fails, instruction unclear)
+- Plan has critical gaps preventing starting
 - You don't understand an instruction
 - Verification fails repeatedly
 - Reviewer flags Critical issues
@@ -99,11 +108,12 @@ After all tasks complete and verified:
 - Between batches: report with reviewer findings and wait
 - Stop when blocked, don't guess
 - Never start implementation on main/master branch without explicit user consent
+- Do not commit during implementation — commits happen at kit:finish-branch when your human partner is ready
 
 ## Integration
 
 **Required workflow skills:**
 - **kit:team-orchestration** — REQUIRED: Set up team before starting
-- **kit:git-worktrees** — REQUIRED: Set up isolated workspace before starting
-- **kit:writing-plans** — Creates the plan this skill executes
+- **kit:git-worktrees** — REQUIRED if entering without prior worktree (skip if already in a worktree from brainstorming)
+- **kit:writing-plans** — Creates the plan this skill executes. Note: kit:team-dev is the default workflow for same-session plan execution; this skill is the alternate entry point for cross-session or standalone plan execution
 - **kit:finish-branch** — Complete development after all tasks

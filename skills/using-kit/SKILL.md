@@ -1,6 +1,6 @@
 ---
 name: using-kit
-description: Use when starting any conversation - establishes how to find and use skills, requiring Skill tool invocation before ANY response including clarifying questions
+description: Use when starting any conversation to establish skill discovery and usage patterns
 ---
 
 <EXTREMELY-IMPORTANT>
@@ -26,7 +26,7 @@ This is not negotiable. This is not optional. You cannot rationalize your way ou
 ```dot
 digraph skill_flow {
     "User message received" [shape=doublecircle];
-    "About to EnterPlanMode?" [shape=doublecircle];
+    "Build/modify feature?" [shape=diamond];
     "Already brainstormed?" [shape=diamond];
     "Invoke brainstorming skill" [shape=box];
     "Might any skill apply?" [shape=diamond];
@@ -37,12 +37,13 @@ digraph skill_flow {
     "Follow skill exactly" [shape=box];
     "Respond (including clarifications)" [shape=doublecircle];
 
-    "About to EnterPlanMode?" -> "Already brainstormed?";
+    "User message received" -> "Build/modify feature?";
+    "Build/modify feature?" -> "Already brainstormed?" [label="yes"];
+    "Build/modify feature?" -> "Might any skill apply?" [label="no"];
     "Already brainstormed?" -> "Invoke brainstorming skill" [label="no"];
     "Already brainstormed?" -> "Might any skill apply?" [label="yes"];
     "Invoke brainstorming skill" -> "Might any skill apply?";
 
-    "User message received" -> "Might any skill apply?";
     "Might any skill apply?" -> "Invoke Skill tool" [label="yes, even 1%"];
     "Might any skill apply?" -> "Respond (including clarifications)" [label="definitely not"];
     "Invoke Skill tool" -> "Announce: 'Using [skill] to [purpose]'";
@@ -52,6 +53,16 @@ digraph skill_flow {
     "Create TodoWrite todo per item" -> "Follow skill exactly";
 }
 ```
+
+## Default Workflow Chain
+
+For building or modifying features, the default chain is:
+1. **brainstorming** — explore codebase, design, get user approval
+2. **writing-plans** — create detailed implementation plan
+3. **team-dev** — execute with persistent team (or executing-plans for separate sessions)
+4. **finish-branch** — commit, PR, or keep as-is
+
+Each skill invokes the next. Trigger brainstorming to start; the chain handles the rest.
 
 ## Team Context Awareness
 
@@ -68,7 +79,7 @@ When you detect an active team context:
 
 ## Red Flags
 
-These thoughts mean STOP — you're rationalizing:
+These thoughts mean STOP—you're rationalizing:
 
 | Thought | Reality |
 |---------|---------|
@@ -89,8 +100,8 @@ These thoughts mean STOP — you're rationalizing:
 
 When multiple skills could apply, use this order:
 
-1. **Process skills first** (brainstorming, debugging) — these determine HOW to approach the task
-2. **Implementation skills second** (domain-specific, tool-specific) — these guide execution
+1. **Process skills first** (brainstorming, debugging) - these determine HOW to approach the task
+2. **Implementation skills second** (frontend-design, mcp-builder) - these guide execution
 
 "Let's build X" → brainstorming first, then implementation skills.
 "Fix this bug" → debugging first, then domain-specific skills.
