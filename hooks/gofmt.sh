@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Read JSON input from stdin
 input=$(cat)
@@ -9,31 +9,15 @@ tool_input=$(echo "$input" | jq -r '.tool_input // {}')
 
 # Check if this is a file editing tool
 case "$tool_name" in
-    Write|Edit|MultiEdit|str_replace_editor|str_replace_based_edit_tool)
+    Write|Edit)
         ;;
     *)
         exit 0
         ;;
 esac
 
-# Extract file path based on tool type
-file_path=""
-
-case "$tool_name" in
-    Write|Edit|MultiEdit)
-        file_path=$(echo "$tool_input" | jq -r '.file_path // ""')
-        ;;
-    str_replace_editor)
-        # Parse command field for path
-        command=$(echo "$tool_input" | jq -r '.command // ""')
-        if [[ "$command" =~ path=([^ ]+) ]]; then
-            file_path="${BASH_REMATCH[1]}"
-        fi
-        ;;
-    str_replace_based_edit_tool)
-        file_path=$(echo "$tool_input" | jq -r '.path // ""')
-        ;;
-esac
+# Extract file path
+file_path=$(echo "$tool_input" | jq -r '.file_path // ""')
 
 # Check if we found a file path and it's a .go file
 if [ -z "$file_path" ] || [[ ! "$file_path" =~ \.go$ ]]; then

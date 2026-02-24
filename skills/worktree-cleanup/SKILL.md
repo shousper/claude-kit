@@ -34,37 +34,36 @@ If dirty:
 - Ask: "This worktree has uncommitted changes. Proceed with removal? (Changes will be lost)"
 - Require explicit confirmation
 
-### Step 2.5: Ensure Not Inside Target Worktree
-
-```bash
-# Check if current directory is inside the worktree being removed
-current=$(pwd)
-if [[ "$current" == "<worktree-path>"* ]]; then
-    # Switch to the main working tree
-    main_tree=$(git worktree list --porcelain | head -1 | sed 's/worktree //')
-    cd "$main_tree"
-fi
-```
-
-Inform your human partner if switching directories: "Switching to main working tree at `<path>` before removal."
-
 ### Step 3: Remove Worktree
 
+⚠️ **CRITICAL — cd before removal:** You MUST determine the main working tree path and `cd` to it BEFORE running any removal command. Always chain the `cd` and removal in the SAME Bash call using `&&`. Never run them as separate Bash tool calls — shell CWD persists between calls, but a deleted CWD will brick every subsequent command.
+
+First, capture the main working tree path from Step 1's output (the first entry in `git worktree list`).
+
+Then remove:
 ```bash
-git worktree remove <worktree-path>
+cd <main-working-tree> && git worktree remove <worktree-path>
 ```
 
-If removal fails (e.g., locked), try:
+If removal fails (e.g., locked or dirty), try with `--force` after informing your human partner:
 ```bash
-git worktree remove --force <worktree-path>
+cd <main-working-tree> && git worktree remove --force <worktree-path>
 ```
 
-Only use `--force` after informing your human partner.
-
-If the worktree directory was manually deleted (not via `git worktree remove`), the worktree metadata will be stale. Clean it up with:
+If the worktree directory was already manually deleted from disk, clean up stale metadata:
 ```bash
-git worktree prune
+cd <main-working-tree> && git worktree prune
 ```
+
+### Recovery: Dead CWD
+
+If any Bash command fails with `Path "..." does not exist`, your shell CWD has been deleted from disk. **Do NOT retry the same command.** You MUST prefix your next command with an absolute `cd`:
+
+```bash
+cd <main-working-tree> && git worktree prune && git worktree list
+```
+
+The main working tree path (first entry from Step 1) is always valid. Use that. Retrying without the `cd` prefix will fail infinitely.
 
 ### Step 4: Clean Up Branch (Optional)
 
@@ -119,11 +118,13 @@ Would you like to switch to <mainline> and pull latest?
 - Auto-cleanup worktrees (always user-triggered)
 - Force-delete branches without confirmation
 - Force-merge or rebase mainline without asking
-- Remove a worktree while cwd is inside it (Step 2.5 handles this — always `cd` out first)
+- Run `git worktree remove` without `cd <main-tree> &&` prefix in the same command
+- Retry a failed Bash command without first `cd`-ing to a valid absolute path — if you get "Path does not exist", your CWD is gone
 
 **Always:**
 - Check for uncommitted changes before removal
 - Confirm destructive operations
+- Chain `cd <main-working-tree> &&` before every removal/prune command
 - Handle pull failures gracefully (inform, don't force)
 
 ## Quick Reference

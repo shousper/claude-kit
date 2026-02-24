@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# TODO: Extract shared boilerplate (JSON parsing, npm prefix detection, directory walking) into hooks/lib.sh
 
 # Read JSON input from stdin
 input=$(cat)
@@ -9,7 +10,7 @@ tool_input=$(echo "$input" | jq -r '.tool_input // {}')
 
 # Check if this is a file editing tool
 case "$tool_name" in
-    Write|Edit|MultiEdit|str_replace_editor|str_replace_based_edit_tool)
+    Write|Edit)
         ;;
     *)
         exit 0
@@ -20,18 +21,8 @@ esac
 file_path=""
 
 case "$tool_name" in
-    Write|Edit|MultiEdit)
+    Write|Edit)
         file_path=$(echo "$tool_input" | jq -r '.file_path // ""')
-        ;;
-    str_replace_editor)
-        # Parse command field for path
-        command=$(echo "$tool_input" | jq -r '.command // ""')
-        if [[ "$command" =~ path=([^ ]+) ]]; then
-            file_path="${BASH_REMATCH[1]}"
-        fi
-        ;;
-    str_replace_based_edit_tool)
-        file_path=$(echo "$tool_input" | jq -r '.path // ""')
         ;;
 esac
 
@@ -194,7 +185,7 @@ if command -v npx &> /dev/null; then
         
         if [ $eslint_exit_code -eq 1 ]; then
             # ESLint found linting errors
-            issue_count=$(echo "$eslint_output" | grep -E "^[[:space:]]*[0-9]+:[0-9]+" | wc -l | tr -d ' ')
+            issue_count=$(echo "$eslint_output" | grep -cE "^[[:space:]]*[0-9]+:[0-9]+" || true)
             stop_reason="eslint found $issue_count issues"
             reason="eslint found $issue_count linting issues in $file_path. Review and fix these issues using a subtask if they're not expected, then continue with your original task.
 

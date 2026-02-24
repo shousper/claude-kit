@@ -85,7 +85,7 @@ Expected: PASS
 - Exact file paths always
 - Complete code in plan (not "add validation")
 - Exact commands with expected output
-- Reference relevant skills with kit:skill-name syntax
+- Reference relevant skills with `kit:<skill-name>` syntax
 - DRY, YAGNI, TDD
 - **No commit steps** — commits are your human partner's decision
 

@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# TODO: Extract shared boilerplate (JSON parsing, npm prefix detection, directory walking) into hooks/lib.sh
 
 # Read JSON input from stdin
 input=$(cat)
@@ -9,7 +10,7 @@ tool_input=$(echo "$input" | jq -r '.tool_input // {}')
 
 # Check if this is a file editing tool
 case "$tool_name" in
-    Write|Edit|MultiEdit|str_replace_editor|str_replace_based_edit_tool)
+    Write|Edit)
         ;;
     *)
         exit 0
@@ -20,18 +21,8 @@ esac
 file_path=""
 
 case "$tool_name" in
-    Write|Edit|MultiEdit)
+    Write|Edit)
         file_path=$(echo "$tool_input" | jq -r '.file_path // ""')
-        ;;
-    str_replace_editor)
-        # Parse command field for path
-        command=$(echo "$tool_input" | jq -r '.command // ""')
-        if [[ "$command" =~ path=([^ ]+) ]]; then
-            file_path="${BASH_REMATCH[1]}"
-        fi
-        ;;
-    str_replace_based_edit_tool)
-        file_path=$(echo "$tool_input" | jq -r '.path // ""')
         ;;
 esac
 
@@ -179,12 +170,12 @@ if command -v npx &> /dev/null; then
         echo "Successfully type-checked project from $config_dir"
     else
         # Capture tsc output for error reporting
-        tsc_output=$(cd "$config_dir" && eval "$tsc_cmd --pretty false" 2>&1) || true
+        tsc_output=$(cd "$config_dir" && eval "$tsc_cmd" 2>&1) || true
         
         # Count TypeScript errors
-        error_count=$(echo "$tsc_output" | grep -E "^[^:]+\([0-9]+,[0-9]+\): error TS[0-9]+:" | wc -l | tr -d ' ')
+        error_count=$(echo "$tsc_output" | grep -cE "^[^:]+\([0-9]+,[0-9]+\): error TS[0-9]+:" || true)
         
-        if [ $error_count -gt 0 ]; then
+        if [ "$error_count" -gt 0 ]; then
             stop_reason="tsc found $error_count type errors"
             reason="TypeScript compiler found $error_count type errors. Review and fix these issues using a subtask if they're not expected, then continue with your original task.
 
