@@ -27,10 +27,11 @@ You MUST create a task for each of these items and complete them in order:
 2. **Synthesize findings** — collect scout reports, build understanding
 3. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
 4. **Propose 2-3 approaches** — with trade-offs and your recommendation
-5. **Present design** — in sections scaled to their complexity, get user approval after each section
-6. **Create worktree** — on design approval, invoke kit:git-worktrees to create isolated workspace and cd into it
-7. **Write design doc** — save to `docs/plans/YYYY-MM-DD-<topic>-design.md` in the worktree (do NOT commit)
-8. **Shutdown team and transition** — shutdown scouts, invoke kit:writing-plans
+5. **Present design** — in sections scaled to their complexity, ask after each section whether it looks right so far
+6. **Get explicit design approval** — STOP and wait for your human partner to confirm the design. Do NOT proceed until they explicitly approve. If they have concerns, revise and re-present.
+7. **Create worktree** — on design approval, invoke kit:git-worktrees to create isolated workspace and cd into it
+8. **Write design doc** — save to `docs/plans/YYYY-MM-DD-<topic>-design.md` in the worktree (do NOT commit)
+9. **Shutdown team and transition** — shutdown scouts, invoke kit:writing-plans
 
 ## Re-Entry (Same Worktree)
 
@@ -61,6 +62,7 @@ digraph brainstorming {
     "Ask clarifying questions" [shape=box];
     "Propose 2-3 approaches" [shape=box];
     "Present design sections" [shape=box];
+    "STOP — wait for explicit approval" [shape=doubleoctagon, style=bold];
     "User approves design?" [shape=diamond];
     "Create worktree (kit:git-worktrees)" [shape=box];
     "Write design doc (no commit)" [shape=box];
@@ -74,7 +76,8 @@ digraph brainstorming {
     "Synthesize scout findings" -> "Ask clarifying questions";
     "Ask clarifying questions" -> "Propose 2-3 approaches";
     "Propose 2-3 approaches" -> "Present design sections";
-    "Present design sections" -> "User approves design?";
+    "Present design sections" -> "STOP — wait for explicit approval";
+    "STOP — wait for explicit approval" -> "User approves design?";
     "User approves design?" -> "Present design sections" [label="no, revise"];
     "User approves design?" -> "Create worktree (kit:git-worktrees)" [label="yes (fresh start)"];
     "User approves design?" -> "Write design doc (no commit)" [label="yes (re-entry)"];
@@ -123,11 +126,17 @@ Collect all scout reports. Build comprehensive understanding before engaging you
 - Optionally spawn approach-elaboration teammates for parallel deep-dives
 
 **Presenting the design:**
-- Scale each section to its complexity
-- Ask after each section whether it looks right
+- Once you believe you understand what you're building, present the design
+- Scale each section to its complexity: a few sentences if straightforward, up to 200-300 words if nuanced
+- Ask after each section whether it looks right so far
 - Cover: architecture, components, data flow, error handling, testing
+- Be ready to go back and clarify if something doesn't make sense
 
-## After the Design
+<HARD-GATE>
+After presenting the design, STOP and wait for your human partner to explicitly approve it. Do NOT write the design doc, create a worktree, or invoke any other skill until they confirm. "Looks good", "approved", "let's go" = proceed. Anything else = revise and re-present.
+</HARD-GATE>
+
+## After the Design (only after explicit approval)
 
 **Worktree (fresh start only):**
 - Invoke kit:git-worktrees to create worktree and cd into it
