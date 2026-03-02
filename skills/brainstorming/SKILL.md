@@ -31,7 +31,9 @@ You MUST create a task for each of these items and complete them in order:
 6. **Get explicit design approval** — STOP and wait for your human partner to confirm the design. Do NOT proceed until they explicitly approve. If they have concerns, revise and re-present.
 7. **Create worktree** — on design approval, invoke kit:git-worktrees to create isolated workspace and cd into it
 8. **Write design doc** — save to `docs/plans/YYYY-MM-DD-<topic>-design.md` in the worktree (do NOT commit)
-9. **Shutdown team and transition** — shutdown scouts, invoke kit:writing-plans
+9. **Shutdown team** — shutdown all scout teammates (kit:team-orchestration shutdown protocol)
+10. **STOP — confirm transition** — Tell your human partner the design is documented and ask if they're ready to move to implementation planning. Do NOT invoke writing-plans until they confirm.
+11. **Invoke writing-plans** — on confirmation, invoke kit:writing-plans to create the implementation plan
 
 ## Re-Entry (Same Worktree)
 
@@ -67,6 +69,8 @@ digraph brainstorming {
     "Create worktree (kit:git-worktrees)" [shape=box];
     "Write design doc (no commit)" [shape=box];
     "Shutdown team" [shape=box];
+    "STOP — confirm transition" [shape=doubleoctagon, style=bold];
+    "Ready for implementation?" [shape=diamond];
     "Invoke writing-plans skill" [shape=doublecircle];
 
     "Already in worktree?" -> "Ask clarifying questions" [label="yes — skip scouts"];
@@ -83,7 +87,9 @@ digraph brainstorming {
     "User approves design?" -> "Write design doc (no commit)" [label="yes (re-entry)"];
     "Create worktree (kit:git-worktrees)" -> "Write design doc (no commit)";
     "Write design doc (no commit)" -> "Shutdown team";
-    "Shutdown team" -> "Invoke writing-plans skill";
+    "Shutdown team" -> "STOP — confirm transition";
+    "STOP — confirm transition" -> "Ready for implementation?";
+    "Ready for implementation?" -> "Invoke writing-plans skill" [label="yes"];
 }
 ```
 
@@ -150,7 +156,11 @@ After presenting the design, STOP and wait for your human partner to explicitly 
 **Shutdown:**
 - Shutdown all scout teammates (kit:team-orchestration shutdown protocol)
 
-**Implementation:**
+<HARD-GATE>
+After writing the design doc and shutting down scouts, STOP and ask your human partner if they are ready to proceed to implementation planning. Do NOT invoke writing-plans until they confirm. They may want to review the design doc, make changes, or take a break before continuing.
+</HARD-GATE>
+
+**Implementation (only after human confirms):**
 - Invoke the writing-plans skill to create implementation plan
 - Do NOT invoke any other skill. writing-plans is the next step.
 

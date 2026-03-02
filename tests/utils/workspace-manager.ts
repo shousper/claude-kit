@@ -10,7 +10,7 @@ const SESSION_FIXTURES = join(FIXTURES_DIR, "sessions");
 export type WorkspaceVariant = "go" | "rust" | "tailwind";
 
 export interface WorkspaceOptions {
-  session?: "post-brainstorm" | "mid-session";
+  session?: "post-brainstorm" | "mid-session" | "brainstorm-design-approved" | "brainstorm-at-transition";
   workspace?: WorkspaceVariant;
 }
 

@@ -57,7 +57,7 @@ export async function runEval(
   };
 
   if (cwd) spawnOptions.cwd = cwd;
-  if (env) spawnOptions.env = { ...process.env, ...env };
+  if (env) spawnOptions.env = env;
 
   const proc = Bun.spawn(args, spawnOptions);
 
