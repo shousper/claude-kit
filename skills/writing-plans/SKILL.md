@@ -99,13 +99,16 @@ Expected: PASS
 
 ## Execution Handoff
 
-After saving the plan, offer a context compact before proceeding:
+After saving the plan, offer the user a choice:
 
 **"Plan complete and saved to `docs/plans/<filename>.md`.**
 
-**Before starting implementation, you may want to clear conversation context:**
-**`/compact Focus on the implementation plan and design decisions for <feature>`**
+**Option 1 — Continue here:** I'll invoke kit:team-dev now to start implementation.
 
-**Ready to proceed with implementation?"**
+**Option 2 — Fresh context:** Use `/clear` or start a new session, then paste this prompt:
 
-Then proceed directly to kit:team-dev. No execution choice — always same-session.
+> Read the implementation plan at `docs/plans/<filename>.md` and execute it using the kit:team-dev skill.
+
+**Which do you prefer?"**
+
+Wait for the user's choice before proceeding.
