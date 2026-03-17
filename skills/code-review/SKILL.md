@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Use when verifying implementation work meets requirements, at review checkpoints or before integration
+description: Orchestrates plan-alignment and quality reviews using persistent or ad-hoc reviewer teammates. Use when verifying implementation matches requirements, at batch review checkpoints, before merging to main, after completing a major feature, before refactoring, after fixing a complex bug, or when a fresh perspective is needed. Spawns specialist reviewers (spec, quality, security, architecture) in parallel and consolidates findings.
 ---
 
 # Requesting Code Review
@@ -62,7 +62,7 @@ When called from team-dev or executing-plans, reviewers are already persistent t
 When no team exists, create one:
 
 1. Create review team via kit:team-orchestration
-2. Spawn reviewer(s) — single general reviewer or parallel specialists
+2. Spawn reviewer(s) using `kit:code-reviewer` agent type — the agent definition provides the comprehensive review framework; `code-review/code-reviewer.md` provides the dispatch template with placeholders and output format
 3. Assign review with context (description, requirements). For uncommitted work, provide reviewers with git diff output rather than commit SHAs
 4. Collect findings, act on feedback
 5. Shutdown team when review complete
@@ -100,8 +100,9 @@ Reviewers that persist across tasks:
 ## Integration
 
 **Within team-dev:** Reviewers are persistent teammates — use existing team
-**Standalone:** Create review team, shutdown after review
-**Template:** `code-review/code-reviewer.md` for standalone reviewer prompt
+**Standalone:** Spawn `kit:code-reviewer` agent type with `code-review/code-reviewer.md` dispatch template
+**Agent definition:** `agents/code-reviewer.md` — canonical review framework (plan alignment, code quality, architecture, documentation)
+**Dispatch template:** `code-review/code-reviewer.md` — context placeholders, git commands, output format
 
 ## Scope and Recommended Focus
 

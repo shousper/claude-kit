@@ -1,6 +1,6 @@
 ---
 name: using-kit
-description: Use when starting any conversation to establish skill discovery and usage patterns
+description: Enforces skill discovery and invocation governance for every task. Use at the start of any conversation, before responding to any user message, when deciding whether a skill applies, when building or modifying features (triggers the brainstorming chain), or when operating within a team context. Defines the default workflow chain (brainstorming -> writing-plans -> team-dev -> finish-branch) and prevents rationalizing away skill usage.
 ---
 
 <EXTREMELY-IMPORTANT>

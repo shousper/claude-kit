@@ -1,6 +1,6 @@
 ---
 name: team-dev
-description: Use when executing implementation plans with independent tasks in the current session
+description: Executes implementation plans using a persistent team of implementer and reviewers within the current session, with batch-boundary code reviews for quality. Use when you have an implementation plan with independent tasks to execute, need to build or implement a feature from a plan, or the user says "execute the plan", "implement this", "start building", or "team dev". DO NOT TRIGGER when there is no plan yet (use brainstorming first) or when tasks require parallel separate sessions (use executing-plans instead).
 ---
 
 # Team-Driven Development

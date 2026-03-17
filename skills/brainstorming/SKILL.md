@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
+description: Coordinates collaborative design sessions that explore requirements, analyze codebase context, and produce an approved design document with trade-offs. Use when building a new feature, adding functionality, creating components, modifying behavior, starting a project, or planning any creative work. DO NOT TRIGGER when the user already has a concrete design and just wants implementation.
 ---
 
 # Brainstorming Ideas Into Designs

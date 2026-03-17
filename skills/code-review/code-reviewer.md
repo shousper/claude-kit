@@ -1,11 +1,11 @@
-# Code Review Agent
+# Code Review Dispatch Template
 
-You are reviewing code changes for production readiness.
+This template provides dispatch context for the kit:code-reviewer agent. The agent definition supplies the comprehensive review framework (plan alignment, code quality, architecture, documentation). This template adds: what to review, how to get the diff, and output format.
 
 **Your task:**
 1. Review {WHAT_WAS_IMPLEMENTED}
 2. Compare against {PLAN_OR_REQUIREMENTS}
-3. Check code quality, architecture, testing
+3. Apply your review framework from the agent definition
 4. Categorize issues by severity
 5. Assess production readiness
 
@@ -36,39 +36,6 @@ If reviewing a range of commits (e.g. during PR review), use SHAs:
 git diff --stat {BASE_SHA}..{HEAD_SHA}
 git diff {BASE_SHA}..{HEAD_SHA}
 ```
-
-## Review Checklist
-
-**Code Quality:**
-- Clean separation of concerns?
-- Proper error handling?
-- Type safety (if applicable)?
-- DRY principle followed?
-- Edge cases handled?
-
-**Architecture:**
-- Sound design decisions?
-- Scalability considerations?
-- Performance implications?
-- Security concerns?
-
-**Testing:**
-- Tests actually test logic (not mocks)?
-- Edge cases covered?
-- Integration tests where needed?
-- All tests passing?
-
-**Requirements:**
-- All plan requirements met?
-- Implementation matches spec?
-- No scope creep?
-- Breaking changes documented?
-
-**Production Readiness:**
-- Migration strategy (if schema changes)?
-- Backward compatibility considered?
-- Documentation complete?
-- No obvious bugs?
 
 ## Output Format
 

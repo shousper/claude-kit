@@ -1,6 +1,6 @@
 ---
 name: finish-branch
-description: Use when implementation is complete, all tests pass, and the work needs to be integrated or finalized
+description: Finalizes a development branch by verifying tests pass, then presenting four completion options (merge locally, draft PR, keep as-is, or discard). Use when implementation is done, a feature branch is ready to ship, work needs to be merged or a PR created, or the user says "finish", "wrap up", "ship it", or "done with this branch". DO NOT TRIGGER when tests are still being written or implementation is incomplete.
 ---
 
 # Finishing a Development Branch

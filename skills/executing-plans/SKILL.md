@@ -1,6 +1,6 @@
 ---
 name: executing-plans
-description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
+description: Coordinates batch execution of a written implementation plan by spawning implementer and reviewer teammates, executing tasks in batches with automated review gates, and pausing for human feedback between batches. Use when handed a plan file to execute, resuming plan work in a new session, or running a standalone plan outside the brainstorming flow. DO NOT TRIGGER for same-session execution after brainstorming — use kit:team-dev instead.
 ---
 
 # Executing Plans

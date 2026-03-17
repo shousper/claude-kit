@@ -1,6 +1,6 @@
 ---
 name: worktree-cleanup
-description: Use when done with a git worktree and ready to clean it up — removes worktree, updates mainline branch, handles uncommitted changes gracefully
+description: Removes git worktrees safely, cleans up associated branches, and pulls latest mainline after removal. Use when finished with a worktree, done with a branch, cleaning up after a merge or PR, abandoning work in a worktree, or when "git worktree list" shows stale entries. Checks for uncommitted changes, verifies no open PRs before branch deletion, and handles force-removal of locked worktrees.
 ---
 
 # Worktree Cleanup

@@ -1,6 +1,6 @@
 ---
 name: debugging
-description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+description: Enforces systematic root-cause investigation before any fix attempt, using a four-phase process (investigate, analyze patterns, hypothesize, implement). Use when encountering bugs, test failures, build errors, unexpected behavior, performance problems, or integration issues — especially when under pressure, when a "quick fix" seems obvious, or when previous fix attempts have failed. DO NOT TRIGGER for new feature development or refactoring without a known defect.
 ---
 
 # Systematic Debugging

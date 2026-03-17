@@ -1,6 +1,6 @@
 ---
 name: code-standards
-description: Load language-specific coding standards before editing Go, Rust, Python, or Tailwind CSS files
+description: Enforces project-specific coding conventions by loading language standards before writing code. Use when about to write, edit, modify, or generate Go, Rust, Python, or Tailwind CSS files. Loads once per language per session and overrides default style with project conventions. DO NOT TRIGGER for languages other than Go, Rust, Python, or Tailwind CSS.
 ---
 
 # Code Standards

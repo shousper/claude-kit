@@ -1,6 +1,6 @@
 ---
 name: create-pr
-description: Use when creating a pull request — defaults to draft PRs, uses repo PR template if available, supports "ready for review" override
+description: Creates a GitHub pull request for the current branch using the gh CLI. Use when asked to create a PR, open a pull request, submit changes for review, or push and create a PR. Defaults to draft, detects and fills repo PR templates, auto-detects the base branch, and supports 'ready for review' override. DO NOT TRIGGER for reviewing existing PRs or commenting on PRs.
 ---
 
 # Create Pull Request

@@ -1,6 +1,6 @@
 ---
 name: writing-plans
-description: Use when you have a spec or requirements for a multi-step task, before touching code
+description: Creates detailed, bite-sized implementation plans with TDD structure, exact file paths, complete code, and test commands. Use when you have a spec, requirements, design doc, or feature request and need to plan before coding — especially for multi-step tasks, large features, or when handing off to another session. DO NOT TRIGGER when asked to write code directly or fix a simple bug.
 ---
 
 # Writing Plans

@@ -1,6 +1,6 @@
 ---
 name: git-worktrees
-description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - creates isolated git worktrees with smart directory selection and safety verification
+description: Creates an isolated git worktree workspace with smart directory selection, gitignore safety verification, dependency installation, and baseline test validation. Use when starting feature work, beginning a new branch, needing workspace isolation, setting up before plan execution, or the user says "new feature", "set up a worktree", or "isolate this work". DO NOT TRIGGER for worktree cleanup or removal — use kit:worktree-cleanup instead.
 ---
 
 # Using Git Worktrees

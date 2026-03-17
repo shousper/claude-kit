@@ -1,6 +1,6 @@
 ---
 name: team-orchestration
-description: Use when setting up team-based workflows - required foundation before spawning teammates or creating shared task lists
+description: Creates and coordinates teams of persistent AI teammates with shared task lists, messaging, and lifecycle management. Use when spawning teammates, creating a team, setting up reviewers or implementers, coordinating multi-agent work, or any skill references "kit:team-orchestration". Provides the scaffolding for TeamCreate, teammate spawning, task dependencies, SendMessage communication, and graceful shutdown.
 ---
 
 # Team Orchestration

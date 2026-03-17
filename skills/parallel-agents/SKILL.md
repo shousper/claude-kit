@@ -1,6 +1,6 @@
 ---
 name: parallel-agents
-description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+description: Coordinates parallel subagent dispatch to solve multiple independent problems concurrently, with structured prompts and conflict-free integration. Use when there are 2+ independent failures, bugs, tasks, or investigations that do not share state -- e.g. multiple test files failing for different reasons, unrelated subsystems broken, or batch tasks that can run simultaneously. DO NOT TRIGGER when failures are related, require shared context, or agents would edit the same files.
 ---
 
 # Dispatching Parallel Agents
