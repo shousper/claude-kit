@@ -62,7 +62,7 @@ When called from team-dev or executing-plans, reviewers are already persistent t
 When no team exists, create one:
 
 1. Create review team via kit:team-orchestration
-2. Spawn reviewer(s) using `kit:code-reviewer` agent type — the agent definition provides the comprehensive review framework; `code-review/code-reviewer.md` provides the dispatch template with placeholders and output format
+2. Spawn reviewer(s) using `code-reviewer` agent type — the agent definition provides the comprehensive review framework; `code-review/code-reviewer.md` provides the dispatch template with placeholders and output format
 3. Assign review with context (description, requirements). For uncommitted work, provide reviewers with git diff output rather than commit SHAs
 4. Collect findings, act on feedback
 5. Shutdown team when review complete
@@ -100,7 +100,7 @@ Reviewers that persist across tasks:
 ## Integration
 
 **Within team-dev:** Reviewers are persistent teammates — use existing team
-**Standalone:** Spawn `kit:code-reviewer` agent type with `code-review/code-reviewer.md` dispatch template
+**Standalone:** Spawn `code-reviewer` agent type with `code-review/code-reviewer.md` dispatch template
 **Agent definition:** `agents/code-reviewer.md` — canonical review framework (plan alignment, code quality, architecture, documentation)
 **Dispatch template:** `code-review/code-reviewer.md` — context placeholders, git commands, output format
 
