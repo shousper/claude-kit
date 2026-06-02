@@ -1,6 +1,6 @@
 ---
 name: code-standards
-description: Enforces project-specific coding conventions by loading language standards before writing code. Use when about to write, edit, modify, or generate Go, Rust, Python, or Tailwind CSS files. Loads once per language per session and overrides default style with project conventions. DO NOT TRIGGER for languages other than Go, Rust, Python, or Tailwind CSS.
+description: Enforces project-specific coding conventions by loading language standards before writing code. Use when about to write, edit, modify, or generate Go, Rust, Python, Tailwind CSS, or HCL (Terraform/OpenTofu) files. Loads once per language per session and overrides default style with project conventions. DO NOT TRIGGER for languages other than Go, Rust, Python, Tailwind CSS, or HCL (Terraform/OpenTofu).
 ---
 
 # Code Standards
@@ -16,6 +16,7 @@ Determine which languages to load based on the file you are about to edit:
 | `*.go`, `go.mod`, `go.sum` | Go | `../../code-standards/go/CLAUDE.md` |
 | `*.rs`, `Cargo.toml`, `Cargo.lock` | Rust | `../../code-standards/rust/CLAUDE.md` |
 | `*.py`, `pyproject.toml`, `requirements.txt`, `setup.py` | Python | `../../code-standards/python/CLAUDE.md` |
+| `*.tf`, `*.tofu`, `*.tofu.json`, `*.tfvars` | HCL (Terraform/OpenTofu) | `../../code-standards/hcl/CLAUDE.md` |
 | `*.css`, `*.tsx`, `*.jsx`, `*.vue`, `*.svelte`, `*.astro`, `*.html` with Tailwind | Tailwind CSS | `../../code-standards/tailwindcss/CLAUDE.md` |
 
 All paths are relative to this skill's base directory.

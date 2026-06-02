@@ -95,6 +95,20 @@ describe("hooks.json", () => {
       }
     }
   });
+
+  it("registers the HCL record (PostToolUse), formatter (Stop), and detector (SessionStart)", () => {
+    const cmds = (event: string) =>
+      (hooksConfig.hooks[event] ?? []).flatMap((e: any) => e.hooks.map((h: any) => h.command));
+    expect(cmds("PostToolUse").some((c: string) => c.includes("hcl-record.sh"))).toBe(true);
+    expect(cmds("Stop").some((c: string) => c.includes("hcl-fmt.sh"))).toBe(true);
+    expect(cmds("SessionStart").some((c: string) => c.includes("hcl-detect.sh"))).toBe(true);
+  });
+
+  it("runs the HCL formatter on SubagentStop as well as Stop", () => {
+    const cmds = (event: string) =>
+      (hooksConfig.hooks[event] ?? []).flatMap((e: any) => e.hooks.map((h: any) => h.command));
+    expect(cmds("SubagentStop").some((c: string) => c.includes("hcl-fmt.sh"))).toBe(true);
+  });
 });
 
 describe("session-start.sh", () => {

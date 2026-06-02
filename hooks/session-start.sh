@@ -30,7 +30,7 @@ cat <<EOF
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "<EXTREMELY_IMPORTANT>\nYou have kit.\n\n**Below is the full content of your 'kit:using-kit' skill - your introduction to using skills. For all other skills, use the 'Skill' tool:**\n\n${using_kit_escaped}\n\n</EXTREMELY_IMPORTANT>\nBefore editing Go, Rust, Python, or Tailwind CSS files, invoke the kit:code-standards skill to load language-specific coding standards."
+    "additionalContext": "<EXTREMELY_IMPORTANT>\nYou have kit.\n\n**Below is the full content of your 'kit:using-kit' skill - your introduction to using skills. For all other skills, use the 'Skill' tool:**\n\n${using_kit_escaped}\n\n</EXTREMELY_IMPORTANT>\nBefore editing Go, Rust, Python, Tailwind CSS, or HCL (Terraform/OpenTofu) files, invoke the kit:code-standards skill to load language-specific coding standards."
   }
 }
 EOF

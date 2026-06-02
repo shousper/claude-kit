@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, mkdir, rm, realpath } from "fs/promises";
+import { mkdtemp, writeFile, mkdir, rm, realpath, chmod } from "fs/promises";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { HOOKS_DIR } from "./paths";
@@ -10,6 +10,7 @@ export interface HookWorkspace {
 let cached: HookWorkspace | undefined;
 let cachedGo: HookWorkspace | undefined;
 let cachedRust: HookWorkspace | undefined;
+let cachedHcl: HookWorkspace | undefined;
 
 export async function getHookWorkspace(): Promise<HookWorkspace> {
   if (cached) return cached;
@@ -84,11 +85,36 @@ export async function getRustWorkspace(): Promise<HookWorkspace> {
   return cachedRust;
 }
 
+export async function getHclWorkspace(): Promise<HookWorkspace> {
+  if (cachedHcl) return cachedHcl;
+  const dir = await mkdtemp(join(tmpdir(), "hook-test-hcl-")).then(realpath);
+  const git = (args: string[]) => Bun.spawn(["git", ...args], { cwd: dir, stdout: "ignore", stderr: "ignore" }).exited;
+  await git(["init"]);
+  await git(["config", "user.email", "test@example.com"]);
+  await git(["config", "user.name", "test"]);
+  await writeFile(join(dir, "main.tf"), 'resource "null_resource" "a" {}\n');
+  await git(["add", "."]);
+  await git(["commit", "-m", "init"]);
+  cachedHcl = { dir };
+  return cachedHcl;
+}
+
+/** Create an executable shim at <dir>/<name> that appends its argv to <dir>/<name>.log and exits 0. */
+export async function makeFakeBin(dir: string, name: string, body?: string): Promise<void> {
+  const script = body ?? `#!/usr/bin/env bash\necho "$@" >> "${join(dir, `${name}.log`)}"\nexit 0\n`;
+  const path = join(dir, name);
+  await writeFile(path, script);
+  await chmod(path, 0o755);
+}
+
 export interface HookInput {
   tool_name: string;
   tool_input: Record<string, unknown>;
   cwd: string;
   session_id?: string;
+  agent_id?: string;
+  args?: string[];                  // appended as argv to the script
+  env?: Record<string, string>;     // merged over process.env
 }
 
 export interface HookResult {
@@ -104,16 +130,20 @@ export async function runHook(
   const scriptPath = resolve(HOOKS_DIR, scriptName);
   const json = JSON.stringify({
     session_id: input.session_id ?? "test-session",
+    agent_id: input.agent_id,
     cwd: input.cwd,
     tool_name: input.tool_name,
     tool_input: input.tool_input,
+    stop_hook_active: false,
   });
 
-  const proc = Bun.spawn(["bash", scriptPath], {
+  const bash = Bun.which("bash") ?? "bash";
+  const proc = Bun.spawn([bash, scriptPath, ...(input.args ?? [])], {
     stdin: new TextEncoder().encode(json),
     stdout: "pipe",
     stderr: "pipe",
     cwd: input.cwd,
+    env: { ...process.env, ...(input.env ?? {}) },
   });
 
   const [stdout, stderr] = await Promise.all([
@@ -125,7 +155,7 @@ export async function runHook(
 }
 
 export async function cleanupHookWorkspace(): Promise<void> {
-  const cleanups = [cached, cachedGo, cachedRust].filter(Boolean);
+  const cleanups = [cached, cachedGo, cachedRust, cachedHcl].filter(Boolean);
   await Promise.all(
     cleanups.map((ws) =>
       rm(ws!.dir, { recursive: true, force: true }).catch((e) =>
@@ -133,5 +163,5 @@ export async function cleanupHookWorkspace(): Promise<void> {
       ),
     ),
   );
-  cached = cachedGo = cachedRust = undefined;
+  cached = cachedGo = cachedRust = cachedHcl = undefined;
 }
