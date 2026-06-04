@@ -113,6 +113,7 @@ export interface HookInput {
   cwd: string;
   session_id?: string;
   agent_id?: string;
+  stop_hook_active?: boolean;       // forwarded to the hook; defaults to false
   args?: string[];                  // appended as argv to the script
   env?: Record<string, string>;     // merged over process.env
 }
@@ -134,7 +135,7 @@ export async function runHook(
     cwd: input.cwd,
     tool_name: input.tool_name,
     tool_input: input.tool_input,
-    stop_hook_active: false,
+    stop_hook_active: input.stop_hook_active ?? false,
   });
 
   const bash = Bun.which("bash") ?? "bash";

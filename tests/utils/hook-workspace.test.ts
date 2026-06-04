@@ -62,7 +62,7 @@ describe("rust workspace", () => {
 describe("runHook", () => {
   it("runs a hook script with JSON input and captures output", async () => {
     const ws = await getHookWorkspace();
-    const result = await runHook("eslint.sh", {
+    const result = await runHook("record.sh", {
       tool_name: "Write",
       tool_input: { file_path: "/nonexistent/file.md" },
       cwd: ws.dir,

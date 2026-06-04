@@ -14,7 +14,7 @@ hcl_tool="${script_dir}/hcl-tool.sh"
 # self-heal on the next Stop). Runs regardless of cwd, before the early-exits.
 config_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 state_dir="${config_dir}/kit/state"
-[ -d "$state_dir" ] && find "$state_dir" -name 'hcl-touched-*.txt' -mtime +1 -delete 2>/dev/null || true
+[ -d "$state_dir" ] && find "$state_dir" -name 'touched-*.txt' -mtime +1 -delete 2>/dev/null || true
 
 # Already decided? stay silent.
 [ -n "$("$hcl_tool" get "$cwd")" ] && exit 0

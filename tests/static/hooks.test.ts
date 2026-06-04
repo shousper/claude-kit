@@ -96,18 +96,16 @@ describe("hooks.json", () => {
     }
   });
 
-  it("registers the HCL record (PostToolUse), formatter (Stop), and detector (SessionStart)", () => {
-    const cmds = (event: string) =>
-      (hooksConfig.hooks[event] ?? []).flatMap((e: any) => e.hooks.map((h: any) => h.command));
-    expect(cmds("PostToolUse").some((c: string) => c.includes("hcl-record.sh"))).toBe(true);
-    expect(cmds("Stop").some((c: string) => c.includes("hcl-fmt.sh"))).toBe(true);
-    expect(cmds("SessionStart").some((c: string) => c.includes("hcl-detect.sh"))).toBe(true);
-  });
-
-  it("runs the HCL formatter on SubagentStop as well as Stop", () => {
-    const cmds = (event: string) =>
-      (hooksConfig.hooks[event] ?? []).flatMap((e: any) => e.hooks.map((h: any) => h.command));
-    expect(cmds("SubagentStop").some((c: string) => c.includes("hcl-fmt.sh"))).toBe(true);
+  it("registers the unified pipeline and no retired scripts", () => {
+    const cmds = (e: string) => (hooksConfig.hooks[e] ?? []).flatMap((x: any) => x.hooks.map((h: any) => h.command));
+    expect(cmds("PostToolUse").some((c: string) => c.endsWith("/record.sh"))).toBe(true);
+    expect(cmds("Stop").some((c: string) => c.endsWith("/format-on-stop.sh"))).toBe(true);
+    expect(cmds("SubagentStop").some((c: string) => c.endsWith("/format-on-stop.sh"))).toBe(true);
+    expect(cmds("SessionStart").some((c: string) => c.endsWith("/hcl-detect.sh"))).toBe(true);
+    const all = Object.values(hooksConfig.hooks).flat().flatMap((x: any) => x.hooks.map((h: any) => h.command));
+    for (const dead of ["gofmt.sh","rustfmt.sh","eslint.sh","typescript.sh","clippy.sh","cargo-check.sh","hcl-record.sh","hcl-fmt.sh"]) {
+      expect(all.some((c: string) => c.endsWith("/" + dead))).toBe(false);
+    }
   });
 });
 

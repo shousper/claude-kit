@@ -86,13 +86,10 @@ Each stage flows into the next automatically. You can enter at any point if you 
 
 | Event | Hook | Trigger |
 |-------|------|---------|
-| PostToolUse | gofmt | Write/Edit on `.go` files |
-| PostToolUse | eslint | Write/Edit on JS/TS files |
-| PostToolUse | typescript | Write/Edit on `.ts`/`.tsx` files |
-| PostToolUse | clippy | Write/Edit on `.rs` files |
-| PostToolUse | cargo-check | Write/Edit on `.rs` files |
-| PostToolUse | rustfmt | Write/Edit on `.rs` files |
-| SessionStart | session-start | Session startup, resume, clear, compact |
+| PostToolUse | `record.sh` | Write/Edit — records edited source paths (Go, Rust, JS/TS, HCL/Terraform/OpenTofu) to an agent-scoped scratch; never modifies files |
+| Stop + SubagentStop | `format-on-stop.sh` | End of turn — formats the touched files and runs checks once, surfacing results as a single non-blocking message (advisory, not mid-turn blocking) |
+| SessionStart | `session-start.sh` | Session startup, resume, clear, compact — kit intro and code-standards guidance |
+| SessionStart | `hcl-detect.sh` | Startup/resume — one-time HCL tool-detection notice and scratch prune |
 
 ## Agents
 
