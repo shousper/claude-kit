@@ -61,10 +61,17 @@ handle_rustfmt() {
   local fs; mapfile -t fs <<<"$1"
   rustfmt "${fs[@]}" >/dev/null 2>&1 || true
 }
-# HCL: fmt touched files (per directory), validate if initialized, tflint if
-# configured. Reuses hcl-tool.sh (unchanged) via KIT_HOOKS_DIR for detection/state.
+# HCL: fmt touched files (per directory), tflint if configured. Reuses
+# hcl-tool.sh (unchanged) via KIT_HOOKS_DIR for detection/state.
 # Ported from hooks/hcl-fmt.sh:31-86 — stdin/scratch plumbing now lives in the
 # dispatcher; notice+findings are returned as this handler's printed string.
+#
+# Deliberately does NOT run `tofu/terraform validate`: validate cross-checks the
+# config against the provider set captured at the last `init`, so any edit that
+# changes the required providers (new provider/resource/module, changed source)
+# makes it emit a spurious "Missing required provider — run init" right after an
+# ordinary edit. fmt is hermetic; validate is not. Leave validation to CI / an
+# explicit user run.
 handle_hcl() {
   [ -n "$1" ] || return 0
   local hcl_tool="${KIT_HOOKS_DIR}/hcl-tool.sh"
@@ -99,12 +106,7 @@ handle_hcl() {
     # 1. fmt — the touched files only (in place; safe at end of turn).
     "$tool" fmt "${in_dir[@]}" >/dev/null 2>&1 || true
 
-    # 2. validate — only if already initialized (never run init ourselves).
-    if [ -d "$dir/.terraform" ]; then
-      out="$("$tool" -chdir="$dir" validate 2>&1)" || findings="${findings}validate (${dir}):\n${out}\n\n"
-    fi
-
-    # 3. tflint — only if installed and configured nearby.
+    # 2. tflint — only if installed and configured nearby.
     if command -v tflint >/dev/null 2>&1; then
       cfg_found=""
       d="$dir"

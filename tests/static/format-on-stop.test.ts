@@ -142,7 +142,10 @@ describe("format-on-stop.sh: hcl", () => {
     await rm(bin, { recursive: true, force: true });
   });
 
-  it("skips validate when .terraform is absent and runs it when present", async () => {
+  it("never runs validate, even when .terraform is present", async () => {
+    // validate cross-checks config against the last init's provider set, so a
+    // provider-affecting edit makes it emit a spurious "Missing required
+    // provider" right after an ordinary edit. The handler must not run it.
     const ws = await getHclWorkspace();
     const c = await cfg();
     const bin = await mkdtemp(join(tmpdir(), "fakebin-"));
@@ -150,18 +153,13 @@ describe("format-on-stop.sh: hcl", () => {
     const env = { CLAUDE_CONFIG_DIR: c, PATH: `${bin}:${process.env.PATH}` };
     await runHook("hcl-tool.sh", { tool_name: "", tool_input: {}, cwd: ws.dir, args: ["set", ws.dir, "tofu"], env });
 
-    // No .terraform yet → validate must NOT appear.
+    // .terraform present (initialized layer) → validate must STILL NOT appear.
+    await mkdir(join(ws.dir, ".terraform"), { recursive: true });
     await runHook("record.sh", { tool_name: "Edit", tool_input: { file_path: join(ws.dir, "main.tf") }, cwd: ws.dir, session_id: "hv1", env });
     await runHook("format-on-stop.sh", { tool_name: "", tool_input: {}, cwd: ws.dir, session_id: "hv1", env });
-    let log = await readFile(join(bin, "tofu.log"), "utf-8");
+    const log = await readFile(join(bin, "tofu.log"), "utf-8");
     expect(log).not.toContain("validate");
-
-    // Now create .terraform → validate must appear.
-    await mkdir(join(ws.dir, ".terraform"), { recursive: true });
-    await runHook("record.sh", { tool_name: "Edit", tool_input: { file_path: join(ws.dir, "main.tf") }, cwd: ws.dir, session_id: "hv2", env });
-    await runHook("format-on-stop.sh", { tool_name: "", tool_input: {}, cwd: ws.dir, session_id: "hv2", env });
-    log = await readFile(join(bin, "tofu.log"), "utf-8");
-    expect(log).toContain("validate");
+    expect(log.split(/\s+/)).toContain("fmt"); // fmt still runs
     await rm(join(ws.dir, ".terraform"), { recursive: true, force: true });
     await rm(c, { recursive: true, force: true });
     await rm(bin, { recursive: true, force: true });
