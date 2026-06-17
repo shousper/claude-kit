@@ -1,6 +1,6 @@
 ---
 name: using-kit
-description: Enforces skill discovery and invocation governance for every task. Use at the start of any conversation, before responding to any user message, when deciding whether a skill applies, when building or modifying features (triggers the brainstorming chain), or when operating within a team context. Defines the default workflow chain (brainstorming -> writing-plans -> team-dev -> finish-branch) and prevents rationalizing away skill usage.
+description: Enforces skill discovery and invocation governance for every task. Use at the start of any conversation, before responding to any user message, when deciding whether a skill applies, when building or modifying features (triggers the brainstorming chain), or when operating within a team context. Defines the default workflow chain (brainstorming -> writing-plans -> build-flow -> finish-branch) and prevents rationalizing away skill usage.
 ---
 
 <EXTREMELY-IMPORTANT>
@@ -59,23 +59,10 @@ digraph skill_flow {
 For building or modifying features, the default chain is:
 1. **brainstorming** — explore codebase, design, get user approval
 2. **writing-plans** — create detailed implementation plan
-3. **team-dev** — execute with persistent team (or executing-plans for separate sessions)
+3. **build-flow** — execute the plan via background workflows
 4. **finish-branch** — commit, PR, or keep as-is
 
 Each skill invokes the next. Trigger brainstorming to start; the chain handles the rest.
-
-## Team Context Awareness
-
-When operating within a team (you are a teammate or team lead):
-
-- **Skills are team-aware.** Skills that reference kit:team-orchestration use the existing team rather than creating a new one.
-- **Skill state carries forward.** If a team has already spawned reviewers, code-review uses the existing teammates rather than spawning new ones.
-- **Teammates follow using-kit too.** When a teammate needs to invoke a skill (e.g., implementer uses TDD), they follow the same governance.
-
-When you detect an active team context:
-1. Check if the invoked skill has team-orchestration integration
-2. If yes, ensure it uses the existing team (don't create a second team)
-3. Pass team context to the skill
 
 ## Red Flags
 

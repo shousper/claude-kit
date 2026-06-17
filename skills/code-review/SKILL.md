@@ -1,109 +1,76 @@
 ---
 name: code-review
-description: Orchestrates plan-alignment and quality reviews using persistent or ad-hoc reviewer teammates. Use when verifying implementation matches requirements, at batch review checkpoints, before merging to main, after completing a major feature, before refactoring, after fixing a complex bug, or when a fresh perspective is needed. Spawns specialist reviewers (spec, quality, security, architecture) in parallel and consolidates findings.
+description: Orchestrates plan-alignment and quality review via a bundled review workflow that fans out review dimensions (correctness, quality, tests, security, architecture) and adversarially verifies each finding. Use when verifying implementation matches requirements or design/architectural alignment, before merging to main, after completing a major feature, before refactoring, after fixing a complex bug, or when a fresh perspective is needed. Consolidates findings into one report.
 ---
 
 # Requesting Code Review
 
-Use persistent reviewer teammates (within a team) or spawn a review team (standalone) to catch issues before they cascade.
+Run the bundled review workflow to fan out independent review dimensions over a diff, adversarially verify each finding, and consolidate the survivors — without any persistent team.
 
-**Core principle:** Review early, review often. Persistent reviewers accumulate codebase knowledge.
+**Core principle:** Review early, review often. Verify findings before reporting them so false positives don't waste fix cycles.
 
 ## When to Request Review
 
 **Mandatory:**
-- At batch boundaries in team-driven development (every 3 tasks by default)
-- After completing major feature
 - Before merge to main
+- After completing a major feature
 
 **Optional but valuable:**
 - When stuck (fresh perspective)
 - Before refactoring (baseline check)
-- After fixing complex bug
+- After fixing a complex bug
 
-## Two Operating Modes
+## Two Modes
 
-### Within an Existing Team
+### Within build-flow
 
-When called from team-dev or executing-plans, reviewers are already persistent teammates.
+When work is being executed by kit:build-flow, the batch review gate inside `build.workflow.js` already runs spec + quality review (with a staged fix-loop) at every batch boundary. Do **not** launch a separate review mid-build — pass the decisions ledger so reviewers have cross-batch awareness. Use a standalone review only for a final pre-merge pass.
 
-1. **Get the diff for review:**
+### Standalone
 
-   **For uncommitted work (default during implementation):**
-   ```bash
-   git diff main --stat    # summary of all changes
-   git diff main           # full diff
-   ```
+When you want an independent review of a diff:
 
-   **For committed work (PR review mode):**
-   ```bash
-   git diff {BASE_SHA}..{HEAD_SHA} --stat
-   git diff {BASE_SHA}..{HEAD_SHA}
-   ```
+1. **Pick the diff ref.**
+   - Uncommitted work (default): the workflow diffs against `main`.
+   - Committed/PR range: pass `diffRef: "{BASE_SHA}..{HEAD_SHA}"`.
+2. **Locate the workflow.** This skill is loaded with its base directory; the runner is `<base>/review.workflow.js`.
+3. **Launch it:**
+   - `Workflow({ scriptPath: "<base>/review.workflow.js", args: { diffRef, reviewDims, ledger } })`
+   - If `scriptPath` rejects a bundled path, read the file and pass its contents as inline `script`.
+   - It fans out one reviewer per dimension, verifies each finding, and returns `{ findings }`.
+4. **Act on the consolidated findings** (below).
 
-2. **Create review tasks in the shared TaskList:**
-   - Spec review → owner: spec-reviewer, blockedBy: implementation task
-   - Quality review → owner: quality-reviewer, blockedBy: implementation task
+The default dimensions are correctness, quality, tests, security, and architecture; override `reviewDims` to focus or extend the review. Quality, security, and architecture run on Opus (xhigh); correctness and tests on Sonnet (high).
 
-3. **Send context via SendMessage:**
-   - To spec-reviewer: requirements, implementer's report
-   - To quality-reviewer: diff summary, description
+## Acting on Findings
 
-4. **Both review in parallel** (read-only, no conflicts)
+- Fix Critical issues immediately.
+- Fix Important issues before proceeding.
+- Note Minor issues for later.
+- Push back if a finding is wrong — with technical reasoning and code/tests that prove it. (The workflow already verifies findings adversarially, but it is not infallible.)
 
-5. **Act on feedback:**
-   - Fix Critical issues immediately
-   - Fix Important issues before proceeding
-   - Note Minor issues for later
-   - Push back if reviewer is wrong (with reasoning)
+## Cross-Batch Awareness via the Ledger
 
-### Standalone (Ad-Hoc Review)
-
-When no team exists, create one:
-
-1. Create review team via kit:team-orchestration
-2. Spawn reviewer(s) using `code-reviewer` agent type — the agent definition provides the comprehensive review framework; `code-review/code-reviewer.md` provides the dispatch template with placeholders and output format
-3. Assign review with context (description, requirements). For uncommitted work, provide reviewers with git diff output rather than commit SHAs
-4. Collect findings, act on feedback
-5. Shutdown team when review complete
-
-## Specialist Parallel Review
-
-For thorough reviews, spawn multiple specialist reviewers in parallel:
-- Security reviewer
-- Architecture reviewer
-- Test coverage reviewer
-
-All review simultaneously. Consolidate findings.
-
-## Persistent Reviewer Benefits
-
-Reviewers that persist across tasks:
-- Remember patterns from earlier tasks
-- Spot inconsistencies ("Task 1 used X, Task 3 uses Y")
-- Track cumulative quality trajectory
-- Catch cross-task architectural drift
+Reviewers are ephemeral, so cross-task awareness comes from the **decisions ledger** the orchestrator maintains, not from a long-lived teammate's memory. Pass `ledger` in `args` so reviewers can spot inconsistencies with earlier batches ("Task 1 used X, Task 3 uses Y"), track cumulative coverage, and flag architectural drift.
 
 ## Red Flags
 
 **Never:**
-- Skip review because "it's simple"
-- Ignore Critical issues
-- Proceed with unfixed Important issues
-- Argue with valid technical feedback
+- Skip review because "it's simple".
+- Ignore Critical issues.
+- Proceed with unfixed Important issues.
+- Argue with valid technical feedback.
 
-**If reviewer wrong:**
-- Push back with technical reasoning
-- Show code/tests that prove it works
-- Request clarification
+**If a finding is wrong:**
+- Push back with technical reasoning.
+- Show code/tests that prove it works.
 
 ## Integration
 
-**Within team-dev:** Reviewers are persistent teammates — use existing team
-**Standalone:** Spawn `code-reviewer` agent type with `code-review/code-reviewer.md` dispatch template
-**Agent definition:** `agents/code-reviewer.md` — canonical review framework (plan alignment, code quality, architecture, documentation)
-**Dispatch template:** `code-review/code-reviewer.md` — context placeholders, git commands, output format
+- **kit:build-flow** — Its batch review gate covers in-flight batches; this skill handles standalone/pre-merge reviews.
+- **Review rubric:** `agents/code-reviewer.md` — canonical review framework (plan alignment, code quality, architecture, documentation), and `code-review/code-reviewer.md` — context placeholders and output format that inform the workflow's dimension prompts.
+- **Workflow:** `./review.workflow.js` — the bundled fan-out-and-verify runner this skill launches.
 
 ## Scope and Recommended Focus
 
-This skill's unique value is **plan-alignment review** (verifying implementation matches requirements and design intent) and **team-based review orchestration** (coordinating persistent or ad-hoc reviewer teammates). General code quality review — style, linting, best practices, vulnerability scanning — should be deferred to the official `code-review` and `pr-review-toolkit` plugins, which provide multi-agent pipelines and specialist depth purpose-built for those concerns.
+This skill's unique value is **plan-alignment review** (verifying implementation matches requirements and design intent) and **workflow-based review orchestration** (fan-out dimensions + adversarial verification). General code quality review — style, linting, best practices, vulnerability scanning — should be deferred to the official `code-review` and `pr-review-toolkit` plugins, which provide multi-agent pipelines and specialist depth purpose-built for those concerns.

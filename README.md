@@ -32,12 +32,12 @@ Install with `/plugin marketplace add <repo>` then `/plugin install <name>@<mark
 Kit's default workflow chain:
 
 ```
-brainstorming → writing-plans → team-dev → finish-branch
+brainstorming → writing-plans → build-flow → finish-branch
 ```
 
 1. **Brainstorm** — Explore the idea, refine requirements, approve design
 2. **Write plan** — Detailed implementation plan with TDD steps (no commit steps)
-3. **Team dev** — Persistent teammates implement tasks in batches with review gates
+3. **Build flow** — A background workflow implements tasks in batches with review gates
 4. **Finish branch** — Commit approved work, push, create draft PR
 
 Each stage flows into the next automatically. You can enter at any point if you already have what the earlier stages produce.
@@ -50,8 +50,7 @@ Each stage flows into the next automatically. You can enter at any point if you 
 |---|---|
 | `brainstorming` | Design exploration before implementation — creates worktree on approval |
 | `writing-plans` | Create bite-sized implementation plans with TDD steps |
-| `team-dev` | Execute plans with persistent teammates and batch-boundary reviews |
-| `executing-plans` | Execute plans in a separate session (alternative to team-dev) |
+| `build-flow` | Execute a plan via a background workflow with batch-boundary reviews |
 | `finish-branch` | Complete development — commit, push, create draft PR |
 
 ### Development Practices
@@ -71,7 +70,6 @@ Each stage flows into the next automatically. You can enter at any point if you 
 | `git-worktrees` | Create isolated git workspaces with smart directory selection |
 | `worktree-cleanup` | Clean up worktrees when done — user-triggered only |
 | `create-pr` | Create pull requests — drafts by default, uses repo PR template |
-| `team-orchestration` | Set up team-based workflows with persistent teammates |
 | `parallel-agents` | Dispatch independent tasks to parallel subagents |
 | `github-work-summary` | Generate GitHub activity summaries for standups or reports |
 

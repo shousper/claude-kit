@@ -1,6 +1,6 @@
 # Auth System Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use kit:team-dev to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use kit:build-flow to execute this plan.
 
 **Goal:** Implement JWT authentication with refresh tokens
 

@@ -23,7 +23,7 @@ Every project goes through this process. "Simple" projects are where unexamined 
 
 You MUST create a task for each of these items and complete them in order:
 
-1. **Deploy research scouts** — create team, spawn Explore-type scouts to investigate project context in parallel
+1. **Deploy research scouts** — spawn ephemeral Explore-type subagents (Agent tool, no team) to investigate project context in parallel
 2. **Synthesize findings** — collect scout reports, build understanding
 3. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
 4. **Propose 2-3 approaches** — with trade-offs and your recommendation
@@ -31,9 +31,8 @@ You MUST create a task for each of these items and complete them in order:
 6. **Get explicit design approval** — STOP and wait for your human partner to confirm the design. Do NOT proceed until they explicitly approve. If they have concerns, revise and re-present.
 7. **Create worktree** — on design approval, invoke kit:git-worktrees to create isolated workspace and cd into it
 8. **Write design doc** — save to `docs/plans/YYYY-MM-DD-<topic>-design.md` in the worktree (do NOT commit)
-9. **Shutdown team** — shutdown all scout teammates (kit:team-orchestration shutdown protocol)
-10. **STOP — confirm transition** — Tell your human partner the design is documented and ask if they're ready to move to implementation planning. Do NOT invoke writing-plans until they confirm.
-11. **Invoke writing-plans** — on confirmation, invoke kit:writing-plans to create the implementation plan
+9. **STOP — confirm transition** — Tell your human partner the design is documented and ask if they're ready to move to implementation planning. Do NOT invoke writing-plans until they confirm.
+10. **Invoke writing-plans** — on confirmation, invoke kit:writing-plans to create the implementation plan
 
 ## Re-Entry (Same Worktree)
 
@@ -58,7 +57,7 @@ If already in a worktree:
 ```dot
 digraph brainstorming {
     "Already in worktree?" [shape=diamond];
-    "Create team, spawn scouts" [shape=box];
+    "Spawn ephemeral scouts" [shape=box];
     "Scouts explore in parallel" [shape=box];
     "Synthesize scout findings" [shape=box];
     "Ask clarifying questions" [shape=box];
@@ -68,14 +67,13 @@ digraph brainstorming {
     "User approves design?" [shape=diamond];
     "Create worktree (kit:git-worktrees)" [shape=box];
     "Write design doc (no commit)" [shape=box];
-    "Shutdown team" [shape=box];
     "STOP — confirm transition" [shape=doubleoctagon, style=bold];
     "Ready for implementation?" [shape=diamond];
     "Invoke writing-plans skill" [shape=doublecircle];
 
     "Already in worktree?" -> "Ask clarifying questions" [label="yes — skip scouts"];
-    "Already in worktree?" -> "Create team, spawn scouts" [label="no — fresh start"];
-    "Create team, spawn scouts" -> "Scouts explore in parallel";
+    "Already in worktree?" -> "Spawn ephemeral scouts" [label="no — fresh start"];
+    "Spawn ephemeral scouts" -> "Scouts explore in parallel";
     "Scouts explore in parallel" -> "Synthesize scout findings";
     "Synthesize scout findings" -> "Ask clarifying questions";
     "Ask clarifying questions" -> "Propose 2-3 approaches";
@@ -86,8 +84,7 @@ digraph brainstorming {
     "User approves design?" -> "Create worktree (kit:git-worktrees)" [label="yes (fresh start)"];
     "User approves design?" -> "Write design doc (no commit)" [label="yes (re-entry)"];
     "Create worktree (kit:git-worktrees)" -> "Write design doc (no commit)";
-    "Write design doc (no commit)" -> "Shutdown team";
-    "Shutdown team" -> "STOP — confirm transition";
+    "Write design doc (no commit)" -> "STOP — confirm transition";
     "STOP — confirm transition" -> "Ready for implementation?";
     "Ready for implementation?" -> "Invoke writing-plans skill" [label="yes"];
 }
@@ -97,23 +94,19 @@ digraph brainstorming {
 
 ## Research Scout Phase
 
-**REQUIRED (fresh start only):** Use kit:team-orchestration to create the team.
+**REQUIRED (fresh start only):** Spawn ephemeral Explore-type subagents via the Agent tool — no team, no shutdown.
 
-### 1. Create Team
+### 1. Spawn Scouts
 
-Name: `"brainstorm-<topic>"`
-
-### 2. Spawn Scouts
-
-Spawn 2-3 Explore-type teammates to investigate different aspects in parallel:
+Spawn 2-3 ephemeral Explore-type subagents (Agent tool, no team) to investigate different aspects in parallel:
 
 - **scout-codebase** (Explore): Explore codebase structure, key patterns, relevant files
 - **scout-docs** (Explore): Read docs, README, recent commits related to topic
 - **scout-patterns** (Explore): Find similar implementations or patterns in the codebase
 
-Spawn all scouts in a single message for maximum parallelism.
+Spawn all scouts in a single message for maximum parallelism. For a large or highly varied sweep, author a dynamic scout workflow instead. Scouts are ephemeral — they end when they return their reports; there is no team to shut down.
 
-### 3. Synthesize
+### 2. Synthesize
 
 Collect all scout reports. Build comprehensive understanding before engaging your human partner.
 
@@ -153,11 +146,8 @@ After presenting the design, STOP and wait for your human partner to explicitly 
 - Write validated design to `docs/plans/YYYY-MM-DD-<topic>-design.md`
 - Do NOT commit the design document
 
-**Shutdown:**
-- Shutdown all scout teammates (kit:team-orchestration shutdown protocol)
-
 <HARD-GATE>
-After writing the design doc and shutting down scouts, STOP and ask your human partner if they are ready to proceed to implementation planning. Do NOT invoke writing-plans until they confirm. They may want to review the design doc, make changes, or take a break before continuing.
+After writing the design doc, STOP and ask your human partner if they are ready to proceed to implementation planning. Do NOT invoke writing-plans until they confirm. They may want to review the design doc, make changes, or take a break before continuing.
 </HARD-GATE>
 
 **Implementation (only after human confirms):**

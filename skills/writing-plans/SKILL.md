@@ -34,7 +34,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use kit:team-dev to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use kit:build-flow to execute this plan.
 
 **Goal:** [One sentence describing what this builds]
 
@@ -103,11 +103,11 @@ After saving the plan, offer the user a choice:
 
 **"Plan complete and saved to `docs/plans/<filename>.md`.**
 
-**Option 1 — Continue here:** I'll invoke kit:team-dev now to start implementation.
+**Option 1 — Continue here:** I'll invoke kit:build-flow now to start implementation.
 
 **Option 2 — Fresh context:** Use `/clear` or start a new session, then paste this prompt:
 
-> Read the implementation plan at `docs/plans/<filename>.md` and execute it using the kit:team-dev skill.
+> Read the implementation plan at `docs/plans/<filename>.md` and execute it using the kit:build-flow skill.
 
 **Which do you prefer?"**
 

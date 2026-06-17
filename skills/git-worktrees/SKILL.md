@@ -209,7 +209,7 @@ Ready to implement auth feature
 
 **Called by:**
 - **brainstorming** - REQUIRED when design is approved and implementation follows
-- **executing-plans** - REQUIRED before executing any tasks
+- **build-flow** - REQUIRED before executing any tasks
 - Any skill needing isolated workspace
 
 **Pairs with:**

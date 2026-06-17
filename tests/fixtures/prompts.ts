@@ -67,7 +67,7 @@ const prompts: Record<string, SkillPrompts> = {
   "code-review": {
     activate: [
       "Let's have a code reviewer look at these changes. They should compare the current implementation against the design spec and flag any gaps or technical issues.",
-      "Can you review the implementation in `/src/auth/login.ts` for security issues and architectural alignment?",
+      "Can you review the implementation in `/src/auth/login.ts` against the design spec for correctness and architectural alignment?",
       "I've implemented the payment feature. Have a reviewer look at the changes against origin/main and spot any problems before we merge.",
       "We should get a code review on the database layer before integrating this with the API.",
       { prompt: "Can you review what I've implemented so far?", session: "mid-session" },
@@ -117,17 +117,6 @@ const prompts: Record<string, SkillPrompts> = {
       "Can you refactor the error handling in the auth module to be more consistent?",
       "I'm adding a new feature for two-factor authentication. How should I structure the validation?",
       "Should we be using JWT or OAuth for this module?",
-    ],
-  },
-
-  "executing-plans": {
-    activate: [
-      "I have a written plan at docs/plans/2026-02-20-auth-system.md — please execute it",
-      "Here's the plan file at docs/plans/caching-layer.md — can you implement it?",
-    ],
-    skip: [
-      "I'm continuing from the previous session where we brainstormed the approach",
-      "I have a plan doc I wrote; can you review it?",
     ],
   },
 
@@ -217,30 +206,17 @@ const prompts: Record<string, SkillPrompts> = {
     ],
   },
 
-  "team-dev": {
+  "build-flow": {
     activate: [
-      "I have an implementation plan ready, let's execute it with a team",
-      "I've finalized the implementation plan. Now let's execute it with a team of coordinated agents.",
-      "Here's the plan we discussed. Let's execute it with a team. Start by creating the team with the three reviewers and the implementer.",
-      { prompt: "Let's execute this plan with a team", session: "post-brainstorm" },
+      "I have an implementation plan ready, let's execute it",
+      "I've finalized the implementation plan. Now let's build it.",
+      "I have a written plan at docs/plans/2026-02-20-auth-system.md — please execute it",
+      { prompt: "Let's execute this plan", session: "post-brainstorm" },
     ],
     skip: [
-      "Create a team to review my deploy codebase. I want them to assess the architecture, identify issues, and recommend improvements.",
-      "Looks like our deployments might be having issues. Can you create a team to rapidly investigate the cause?",
-      "Create a team to analyse how episodic memory works, and see if they can come up with a plan to implement a better plugin.",
-    ],
-  },
-
-  "team-orchestration": {
-    activate: [
-      "I need to set up a team of agents to coordinate on this project",
-      "Set up a coordinated team with an implementer, a spec reviewer, and a quality reviewer sharing a task list",
-      "I want to create a team with a code reviewer, an implementer, and a tester",
-    ],
-    skip: [
+      "I'm continuing from the previous session where we brainstormed the approach",
+      "I have a plan doc I wrote; can you review it?",
       "Let's brainstorm ideas for a new feature",
-      "I need help reviewing this code",
-      "The team at work discussed this feature yesterday",
     ],
   },
 

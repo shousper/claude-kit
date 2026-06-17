@@ -203,7 +203,7 @@ After completing the chosen option, note:
 ## Integration
 
 **Called by:**
-- **team-dev** — After your human partner chooses "Finish the branch"
+- **build-flow** — After your human partner chooses "Finish the branch"
 
 **Invokes:**
 - **kit:create-pr** — For Option 2 (draft PR creation)
