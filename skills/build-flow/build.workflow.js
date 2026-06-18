@@ -15,11 +15,42 @@ export const meta = {
 //   maxFixRounds: number, // default 3
 // }
 
-const MAX_FIX_ROUNDS = args.maxFixRounds ?? 3
-const ledger = args.ledger ?? { decisions: [], conventions: [], deviations: [] }
-const startBatch = args.startBatch ?? 0
-const batches = args.batches ?? []
+// `args` is forwarded verbatim from the Workflow call and SHOULD be a structured object.
+// Callers sometimes pass a JSON-encoded string by mistake, which makes `args.batches`
+// undefined and the whole run a silent no-op — normalize defensively, and fail loud
+// rather than reporting a fake `done`.
+let a = args ?? {}
+if (typeof a === 'string') {
+  try {
+    a = JSON.parse(a)
+  } catch (e) {
+    return {
+      status: 'blocked',
+      blockedAtBatch: 0,
+      reason: `build-flow runner: args arrived as a string that is not valid JSON (${e.message}). Pass args as a structured object, not a JSON-encoded string.`,
+      ledger: { decisions: [], conventions: [], deviations: [] },
+      results: [],
+    }
+  }
+}
+const MAX_FIX_ROUNDS = a.maxFixRounds ?? 3
+const ledger = a.ledger ?? { decisions: [], conventions: [], deviations: [] }
+const startBatch = a.startBatch ?? 0
+const batches = a.batches ?? []
 const results = []
+
+// No batches almost always means a malformed launch (args stringified, or a plan that
+// parsed into zero tasks). Block loudly instead of returning `done` with zero work — a
+// fake success is the worst outcome because it looks like the plan ran.
+if (!Array.isArray(batches) || batches.length === 0) {
+  return {
+    status: 'blocked',
+    blockedAtBatch: startBatch,
+    reason: 'build-flow runner: no batches to execute. args.batches was empty or missing — check that args was passed as a structured object (not a JSON-encoded string) and that the plan parsed into at least one task.',
+    ledger,
+    results,
+  }
+}
 
 const IMPL_SCHEMA = {
   type: 'object',

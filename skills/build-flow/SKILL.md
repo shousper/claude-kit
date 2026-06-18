@@ -30,8 +30,10 @@ Markdown stays the human format — you parse it into structure at runtime.
 4. **Locate the workflow.** This skill is loaded with its base directory. The runner is `<base>/build.workflow.js`.
 5. **Launch one background workflow per run segment:**
    - `Workflow({ scriptPath: "<base>/build.workflow.js", args: { batches, ledger, startBatch, maxFixRounds: 3 } })`
+   - **Pass `args` as a real JSON object — never a JSON-encoded string.** The Workflow tool forwards `args` verbatim, so a stringified blob (`args: "{\"batches\":…}"`) reaches the script as a string and `args.batches` is `undefined`. Write `batches`/`ledger` as actual nested JSON in the tool call; do not `JSON.stringify` them.
    - If `scriptPath` rejects a bundled path, read the file and pass its contents as inline `script` instead.
    - It runs in the background; you are notified on completion.
+   - **Sanity-check the launch.** A real run spawns agents and takes seconds-to-minutes. If it returns almost instantly — `blocked` with a "no batches" reason, or (on an older runner) `done` with empty `results` — your `args` were malformed, usually stringified. Fix the args and relaunch; never report a no-op as success.
 6. **Handle the result:**
    - `status: 'done'` → merge the returned `ledger`, present a final summary, then the iteration choice below.
    - `status: 'blocked'` → surface `reason`, `blockedAtBatch`, and any `findings`, resolve with your human partner, then re-launch with `startBatch = blockedAtBatch` and the updated `ledger`.
@@ -90,6 +92,9 @@ Invocable either way. The only difference is a reminder: if continuing in a long
 - Make agents re-read the plan file — pass full task text via `args`.
 - Drop the ledger between segments — cross-batch awareness depends on it.
 - Re-author the workflow inline when the bundled `build.workflow.js` exists.
+- Pass `args` as a JSON-stringified blob — it must be a real object, or the runner sees zero batches and blocks.
+- Treat an instant return with no agents / empty `results` as success — that's a malformed-args no-op; fix the args and relaunch.
+- Patch the runner to work around a no-op launch — fix how you pass `args` first; the runner now blocks loudly to point you there.
 
 ## Integration
 
