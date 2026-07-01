@@ -52,6 +52,20 @@ if (!Array.isArray(batches) || batches.length === 0) {
   }
 }
 
+// Each batch must be a bare array of task objects. A common mis-shaping is wrapping tasks
+// in an object (e.g. { index, tasks: [...] }), which would crash `for (const task of batch)`
+// with an opaque "not iterable" error. Block loudly with a shape hint instead.
+const badBatch = batches.findIndex((batch) => !Array.isArray(batch))
+if (badBatch !== -1) {
+  return {
+    status: 'blocked',
+    blockedAtBatch: badBatch,
+    reason: `build-flow runner: batch ${badBatch} is not an array of tasks. Each batch must be a bare array like [ { id, title, prompt }, ... ] — not an object (e.g. { index, tasks: [...] }). Fix the batches shape in args.`,
+    ledger,
+    results,
+  }
+}
+
 const IMPL_SCHEMA = {
   type: 'object',
   required: ['summary', 'filesTouched', 'testsPassed'],

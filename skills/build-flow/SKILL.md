@@ -28,12 +28,37 @@ Markdown stays the human format — you parse it into structure at runtime.
 2. **Parse the plan into batches.** Extract tasks (id, title, full prompt text, dependencies). Group into dependency-ordered batches where tasks within a batch are independent (topological layers). Default batch size ~3; smaller for large/complex tasks. Carry each task's FULL text — do not make agents re-read the plan file.
 3. **Seed the ledger.** `{ decisions: [], conventions: [], deviations: [] }` — the compact cross-batch record that replaces persistent reviewer memory.
 4. **Locate the workflow.** This skill is loaded with its base directory. The runner is `<base>/build.workflow.js`.
-5. **Launch one background workflow per run segment:**
-   - `Workflow({ scriptPath: "<base>/build.workflow.js", args: { batches, ledger, startBatch, maxFixRounds: 3 } })`
-   - **Pass `args` as a real JSON object — never a JSON-encoded string.** The Workflow tool forwards `args` verbatim, so a stringified blob (`args: "{\"batches\":…}"`) reaches the script as a string and `args.batches` is `undefined`. Write `batches`/`ledger` as actual nested JSON in the tool call; do not `JSON.stringify` them.
+5. **Launch one workflow per run segment.** Workflows always run in the background — you're notified on completion. Match this shape exactly:
+
+   ```
+   Workflow({
+     scriptPath: "<base>/build.workflow.js",
+     args: {
+       startBatch: 0,
+       maxFixRounds: 3,
+       ledger: { decisions: [], conventions: [], deviations: [] },
+       batches: [
+         // Batch 0 — independent tasks; implemented sequentially, then reviewed together
+         [
+           { id: "T1", title: "Add rate-limit config",
+             prompt: "Add a `rateLimit` field (requests-per-minute, default 60) to config/server.ts and validate it is a positive integer on load." },
+           { id: "T2", title: "Add logging middleware",
+             prompt: "Create middleware/logging.ts that logs method, path, and duration per request. Wire it in server.ts before the router." }
+         ],
+         // Batch 1 — depends on batch 0
+         [
+           { id: "T3", title: "Enforce rate limit",
+             prompt: "In middleware/rateLimit.ts, reject requests over the configured rateLimit with HTTP 429, using the config field from T1." }
+         ]
+       ]
+     }
+   })
+   ```
+
+   - Every task carries its FULL `prompt` text — agents never re-read the plan. Never abbreviate or summarize a prompt to shrink the call.
+   - `args` may be this object **or** a valid JSON string of it — the runner normalizes either. There is no `run_in_background` param (it's already background); unknown params error out. The only launches that fail are a **truncated/malformed payload** or **zero batches**.
    - If `scriptPath` rejects a bundled path, read the file and pass its contents as inline `script` instead.
-   - It runs in the background; you are notified on completion.
-   - **Sanity-check the launch.** A real run spawns agents and takes seconds-to-minutes. If it returns almost instantly — `blocked` with a "no batches" reason, or (on an older runner) `done` with empty `results` — your `args` were malformed, usually stringified. Fix the args and relaunch; never report a no-op as success.
+   - **Sanity-check the launch.** A real run spawns agents and takes seconds-to-minutes. An almost-instant `blocked` with a "no batches" reason means an empty or truncated payload — fix `args` and relaunch; never report a no-op as success.
 6. **Handle the result:**
    - `status: 'done'` → merge the returned `ledger`, present a final summary, then the iteration choice below.
    - `status: 'blocked'` → surface `reason`, `blockedAtBatch`, and any `findings`, resolve with your human partner, then re-launch with `startBatch = blockedAtBatch` and the updated `ledger`.
@@ -92,9 +117,10 @@ Invocable either way. The only difference is a reminder: if continuing in a long
 - Make agents re-read the plan file — pass full task text via `args`.
 - Drop the ledger between segments — cross-batch awareness depends on it.
 - Re-author the workflow inline when the bundled `build.workflow.js` exists.
-- Pass `args` as a JSON-stringified blob — it must be a real object, or the runner sees zero batches and blocks.
-- Treat an instant return with no agents / empty `results` as success — that's a malformed-args no-op; fix the args and relaunch.
-- Patch the runner to work around a no-op launch — fix how you pass `args` first; the runner now blocks loudly to point you there.
+- Truncate, summarize, or abbreviate the batch payload — a cut-off JSON blob is the one thing that makes the runner block. (A whole object or a whole valid JSON string both parse fine; incompleteness is the enemy, not stringification.)
+- Pass `run_in_background` or other unknown Workflow params — it always runs in background and errors on unexpected parameters.
+- Treat an instant `blocked` return with no agents / empty `results` as success — that's a malformed or empty payload; fix `args` and relaunch.
+- Patch the runner to work around a no-op launch — fix the payload first; the runner blocks loudly to point you there.
 
 ## Integration
 
