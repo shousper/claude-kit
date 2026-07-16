@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "storiesDir": "stories",
+  "merge": "self",
+  "gates": {
+    "check": { "kind": "command", "run": "true" }
+  },
+  "defaults": { "chore": ["check"] },
+  "gateLock": true,
+  "budgets": { "maxIterations": 6, "maxFixRoundsPerStory": 2 }
+}

@@ -143,6 +143,26 @@ describe("parseSkill cross-references", () => {
   });
 });
 
+describe("parseSkill namespaced cross-references", () => {
+  it("extracts refs with their plugin namespace", async () => {
+    const skill = await parseSynthetic(
+      "---\nname: test\ndescription: desc\n---\n# T\nUse kit:tdd then stories:work.",
+    );
+    expect(skill.namespacedRefs).toContainEqual({ ns: "kit", name: "tdd" });
+    expect(skill.namespacedRefs).toContainEqual({ ns: "stories", name: "work" });
+  });
+
+  it("dedupes, ignores code blocks, and filters :name placeholders", async () => {
+    const content = [
+      "---", "name: test", "description: desc", "---", "# T",
+      "stories:plan and stories:plan again; kit:name is a placeholder.",
+      "```yaml", "x: stories:fake", "```",
+    ].join("\n");
+    const skill = await parseSynthetic(content);
+    expect(skill.namespacedRefs).toEqual([{ ns: "stories", name: "plan" }]);
+  });
+});
+
 describe("parseSkill code blocks", () => {
   it("extracts code blocks with language tags", async () => {
     const content = [

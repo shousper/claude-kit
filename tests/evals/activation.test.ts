@@ -2,82 +2,15 @@ import { describe, it } from "bun:test";
 import { runEval } from "../utils/eval-runner";
 import { activationTests, type ActivationTest } from "../fixtures/prompts";
 import { createWorkspace } from "../utils/workspace-manager";
+import { checkSkillActivation } from "../utils/skill-activation";
 
 const TRIALS = 3;
 const REQUIRED_PASSES = 2;
 const PER_TRIAL_TIMEOUT = 60_000;
 const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "1";
+const RUN_EVALS = process.env.RUN_EVALS === "1";
 
 const VALID_SESSIONS = new Set(["post-brainstorm", "mid-session"] as const);
-
-/**
- * Parse NDJSON (stream-json) output into individual event objects.
- */
-function parseStreamJson(stdout: string): any[] {
-  let parseFailures = 0;
-  const events = stdout
-    .split("\n")
-    .filter((line) => line.trim())
-    .flatMap((line) => {
-      try {
-        return [JSON.parse(line)];
-      } catch {
-        parseFailures++;
-        return [];
-      }
-    });
-  if (events.length === 0 && parseFailures > 0)
-    console.warn(`parseStreamJson: ${parseFailures} lines failed to parse, 0 succeeded`);
-  return events;
-}
-
-/**
- * Check whether Claude activated the expected skill by inspecting stream-json
- * output for Skill tool calls and text mentions.
- */
-function checkSkillActivation(
-  stdout: string,
-  skill: string,
-): { activated: boolean; details: string } {
-  const events = parseStreamJson(stdout);
-  if (events.length === 0)
-    return { activated: false, details: "No parseable events in output" };
-
-  for (const event of events) {
-    if (event.type !== "assistant") continue;
-    const content = event.message?.content;
-    if (!Array.isArray(content)) continue;
-    for (const block of content) {
-      if (block.type === "tool_use" && block.name === "Skill") {
-        const invoked = block.input?.skill;
-        if (invoked === skill || invoked === `kit:${skill}`)
-          return { activated: true, details: `Skill tool called with "${invoked}"` };
-      }
-    }
-  }
-
-  for (const event of events) {
-    if (event.type !== "assistant") continue;
-    const content = event.message?.content;
-    if (!Array.isArray(content)) continue;
-    for (const block of content) {
-      if (block.type === "text" && block.text?.includes(`kit:${skill}`))
-        return { activated: true, details: `Found "kit:${skill}" in assistant text` };
-    }
-  }
-
-  const toolCalls = events
-    .filter((e: any) => e.type === "assistant")
-    .flatMap((e: any) => (e.message?.content ?? []).filter((b: any) => b.type === "tool_use"))
-    .map((b: any) => `${b.name}(${JSON.stringify(b.input).slice(0, 80)})`);
-
-  return {
-    activated: false,
-    details: toolCalls.length > 0
-      ? `Tools called: ${toolCalls.join(", ")}`
-      : "No tool calls found",
-  };
-}
 
 function truncate(s: string, max = 300): string {
   if (!s) return "(empty)";
@@ -106,7 +39,7 @@ const grouped = activationTests.reduce<GroupedTests>((acc, test) => {
   return acc;
 }, {});
 
-describe("skill activation", () => {
+describe.skipIf(!RUN_EVALS)("skill activation", () => {
   for (const [skill, contexts] of Object.entries(grouped)) {
     describe(skill, () => {
       for (const [context, tests] of Object.entries(contexts)) {

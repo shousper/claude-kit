@@ -10,6 +10,7 @@ export interface ParsedSkill {
   frontmatter: { name: string; description: string; [key: string]: unknown };
   headings: Array<{ depth: number; text: string }>;
   crossRefs: string[];
+  namespacedRefs: Array<{ ns: string; name: string }>;
   codeBlocks: Array<{ lang: string | null; value: string }>;
   dirName: string;
   raw: string;
@@ -24,6 +25,7 @@ export async function parseSkill(filePath: string): Promise<ParsedSkill> {
     frontmatter,
     headings: extractHeadings(tree),
     crossRefs: extractCrossRefs(body),
+    namespacedRefs: extractNamespacedRefs(body),
     codeBlocks: extractCodeBlocks(tree),
     dirName: basename(dirname(filePath)),
     raw,
@@ -63,6 +65,20 @@ function extractCrossRefs(body: string): string[] {
     if (match[1] !== "name") refs.add(match[1]);
   }
   return [...refs];
+}
+
+function extractNamespacedRefs(body: string): Array<{ ns: string; name: string }> {
+  const stripped = body.replace(/```[\s\S]*?```/g, "");
+  const seen = new Set<string>();
+  const refs: Array<{ ns: string; name: string }> = [];
+  for (const m of stripped.matchAll(/\b(kit|stories):([a-z0-9-]+)/g)) {
+    if (m[2] === "name") continue;
+    const key = `${m[1]}:${m[2]}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    refs.push({ ns: m[1], name: m[2] });
+  }
+  return refs;
 }
 
 /** Simple recursive tree walker for mdast nodes. */

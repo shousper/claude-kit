@@ -1,0 +1,4 @@
+.worktrees/
+.claude/*.local.*
+.claude/locks/
+.claude/story-evidence/

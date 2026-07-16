@@ -9,7 +9,13 @@
       "name": "kit",
       "description": "Skills, hooks, and agents for a review-first development workflow",
       "version": "1.2.0",
-      "source": "./"
+      "source": "./plugins/kit"
+    },
+    {
+      "name": "stories",
+      "description": "Story-based autonomous workflow: markdown story board, typed verification gates, goal loop, parallel same-machine workers",
+      "version": "0.1.0",
+      "source": "./plugins/stories"
     }
   ]
 }

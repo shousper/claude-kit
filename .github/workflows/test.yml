@@ -17,3 +17,10 @@ jobs:
           restore-keys: bun-
       - run: bun install
       - run: bun run test
+
+  plugin-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: npm install -g @anthropic-ai/claude-code
+      - run: claude plugin validate plugins/kit --strict && claude plugin validate plugins/stories --strict

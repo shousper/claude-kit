@@ -259,6 +259,79 @@ const prompts: Record<string, SkillPrompts> = {
       "This session is being continued from a previous conversation where we started planning the migration.",
     ],
   },
+
+  // The five stories blocks below are Section D's manual trigger-check prompts,
+  // verbatim (D1–D6 final steps). workspace: "stories" = D's WS_MARKER (has
+  // .claude/story-workflow.json); no workspace = D's WS_BARE. The // → comments
+  // mirror D's expected routing for skip prompts.
+  "stories:setup": {
+    activate: [
+      "Set up the story workflow in this project",
+      "I want to adopt the stories board here — run story init and configure the gates",
+      "Install the story-based workflow in this repo with PR-mode integration",
+    ],
+    skip: [
+      { prompt: "Break this spec into stories on the board", workspace: "stories" }, // → stories:plan
+      "Set up a git worktree for this feature work", // → kit:git-worktrees
+      "How do I configure ESLint for this project?",
+    ],
+  },
+
+  "stories:plan": {
+    activate: [
+      { prompt: "Here's the approved design doc — break it down into stories on the board", workspace: "stories" },
+      { prompt: "Turn docs/plans/payment-redesign.md into epics and stories with dependencies", workspace: "stories" },
+      { prompt: "Populate the story board from this spec", workspace: "stories" },
+    ],
+    skip: [
+      "I have a spec for the new caching layer, let's create an implementation plan", // → kit:writing-plans; no marker file
+      { prompt: "Work through the story board until it's done", workspace: "stories" }, // → stories:work
+      { prompt: "Let's brainstorm how the notification feature should behave", workspace: "stories" }, // → kit:brainstorming
+    ],
+  },
+
+  "stories:work": {
+    activate: [
+      { prompt: "Complete all stories on the board", workspace: "stories" },
+      { prompt: "Work on epic st-9c01 until it's done", workspace: "stories" },
+      { prompt: "Pick up the next ready story and implement it", workspace: "stories" },
+    ],
+    skip: [
+      { prompt: "Break this spec into stories on the board", workspace: "stories" }, // → stories:plan
+      { prompt: "Stop the story loop", workspace: "stories" }, // → stories:cancel
+      { prompt: "I have an implementation plan at docs/plans/x.md — execute it", workspace: "stories" }, // → kit:build-flow
+    ],
+  },
+
+  "stories:cancel": {
+    activate: [
+      { prompt: "Stop the story loop", workspace: "stories" },
+      { prompt: "Cancel the autonomous run and show me where the board stands", workspace: "stories" },
+      { prompt: "Halt story work — I need to review what's happened so far", workspace: "stories" },
+    ],
+    skip: [
+      { prompt: "Mark st-4f2a as done", workspace: "stories" }, // → stories:work / CLI
+      { prompt: "Archive the completed stories", workspace: "stories" }, // → CLI `story archive`
+      { prompt: "Cancel that last edit and restore the file", workspace: "stories" },
+    ],
+  },
+
+  "stories:using-stories": {
+    activate: [
+      // Deliberately NO stories workspace: in a marker workspace the SessionStart hook
+      // has already injected the using-stories content, so the model correctly answers
+      // from context without re-invoking the skill. Only in a bare repo does answering
+      // require the invocation these tests assert.
+      "What are the rules of the story workflow when a repo uses the stories plugin?",
+      "Remind me how to use the stories plugin's story CLI",
+      "How does the stories-plugin story workflow operate?",
+    ],
+    skip: [
+      { prompt: "Set up the story workflow in this project", workspace: "stories" }, // → stories:setup
+      { prompt: "Complete all stories on the board", workspace: "stories" }, // → stories:work
+      { prompt: "Summarize this conversation in 2-4 sentences.", workspace: "stories" },
+    ],
+  },
 };
 
 export const activationTests: ActivationTest[] = flatten(prompts);

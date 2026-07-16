@@ -9,3 +9,8 @@ dist/
 tmp/
 target/
 Cargo.lock
+
+# Eval fixture: un-ignore the marker config that global gitignores' `.claude/` rule
+# would otherwise silently exclude (workspace-stories fixture needs it on fresh clones)
+!tests/fixtures/workspace-stories/.claude/
+!tests/fixtures/workspace-stories/.claude/**

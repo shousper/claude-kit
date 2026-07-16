@@ -6,6 +6,7 @@ const TRIALS = 3;
 const REQUIRED_PASSES = 2;
 const PER_TRIAL_TIMEOUT = 120_000;
 const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "1";
+const RUN_EVALS = process.env.RUN_EVALS === "1";
 
 /**
  * Parse NDJSON (stream-json) output into individual event objects.
@@ -154,7 +155,7 @@ function assertTrials(
   }
 }
 
-describe("brainstorming gate", () => {
+describe.skipIf(!RUN_EVALS)("brainstorming gate", () => {
   it("does NOT auto-invoke writing-plans from design approval (full flow)", async () => {
     const trials = await Promise.all(
       Array.from({ length: TRIALS }, () =>

@@ -19,19 +19,10 @@ export interface InvocationCheck {
   details: string;
 }
 
-/** Parse stream-json (NDJSON) into event objects, skipping unparseable lines. */
-export function parseStreamJson(stdout: string): any[] {
-  return stdout
-    .split("\n")
-    .filter((line) => line.trim())
-    .flatMap((line) => {
-      try {
-        return [JSON.parse(line)];
-      } catch {
-        return [];
-      }
-    });
-}
+// Re-exported for existing importers (e.g. stories-work.test.ts) — the single
+// implementation now lives in stream-json.ts.
+import { parseStreamJson } from "./stream-json";
+export { parseStreamJson };
 
 /** Every `Workflow` tool_use input the assistant emitted, in order. */
 export function findWorkflowCalls(stdout: string): any[] {

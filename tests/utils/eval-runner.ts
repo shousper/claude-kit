@@ -1,4 +1,4 @@
-import { ROOT } from "./paths";
+import { KIT_ROOT, STORIES_ROOT } from "./paths";
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN || Bun.which("claude") || "claude";
 
@@ -13,8 +13,8 @@ export interface EvalResult {
 
 export interface EvalOptions {
   timeout?: number;
-  /** Pass `false` to skip --plugin-dir entirely. Defaults to ROOT. */
-  pluginDir?: string | false;
+  /** One or more plugin dirs, each emitted as a repeated --plugin-dir flag. Pass `false` to skip --plugin-dir entirely. Defaults to both bundled plugins. */
+  pluginDir?: string | string[] | false;
   outputFormat?: string;
   /** Model to use. Defaults to "sonnet" to keep eval costs low. */
   model?: string;
@@ -24,6 +24,8 @@ export interface EvalOptions {
   resume?: string;
   forkSession?: boolean;
   noSessionPersistence?: boolean;
+  /** Appends --dangerously-skip-permissions. Eval-only; isolated temp workspaces are the sole sanctioned context. */
+  dangerouslySkipPermissions?: boolean;
 }
 
 export async function runEval(
@@ -32,7 +34,7 @@ export async function runEval(
 ): Promise<EvalResult> {
   const {
     timeout = 30_000,
-    pluginDir = ROOT,
+    pluginDir = [KIT_ROOT, STORIES_ROOT],
     outputFormat = "stream-json",
     model = "sonnet",
     maxTurns,
@@ -41,14 +43,16 @@ export async function runEval(
     resume,
     forkSession,
     noSessionPersistence,
+    dangerouslySkipPermissions,
   } = options;
 
   const args = [CLAUDE_BIN, "-p", "--verbose", "--output-format", outputFormat, "--model", model];
-  if (typeof pluginDir === "string") args.push("--plugin-dir", pluginDir);
+  for (const dir of pluginDir === false ? [] : [pluginDir].flat()) args.push("--plugin-dir", dir);
   if (maxTurns !== undefined) args.push("--max-turns", String(maxTurns));
   if (resume) args.push("--resume", resume);
   if (forkSession) args.push("--fork-session");
   if (noSessionPersistence) args.push("--no-session-persistence");
+  if (dangerouslySkipPermissions) args.push("--dangerously-skip-permissions");
 
   const spawnOptions: Parameters<typeof Bun.spawn>[1] = {
     stdin: new TextEncoder().encode(prompt),

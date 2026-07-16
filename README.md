@@ -1,6 +1,11 @@
-# kit
+# claude-kit
 
-A Claude Code plugin that provides a complete development workflow — from brainstorming ideas through design, implementation, code review, and branch completion.
+A Claude Code plugin marketplace hosting two plugins:
+
+- **`kit`** (`plugins/kit/`) — a complete development workflow, from brainstorming ideas through design, implementation, code review, and branch completion.
+- **`stories`** (`plugins/stories/`) — a story-based autonomous workflow built on kit: a repo-native markdown story board with typed verification gates and a goal loop that works the board until it is drained. See [plugins/stories/README.md](plugins/stories/README.md).
+
+The remainder of this README documents `kit`.
 
 **Philosophy:** You control when work enters git history. Kit accumulates changes locally, lets you review holistically, and commits only when you say so. Planning documents stay out of version control. PRs are always created as drafts.
 
@@ -10,8 +15,11 @@ A Claude Code plugin that provides a complete development workflow — from brai
 # Add the marketplace
 /plugin marketplace add shousper/claude-kit
 
-# Install the plugin
-/plugin install kit@shousper-claude-kit
+# Install the core workflow plugin
+/plugin install kit@shousper-kit
+
+# Optional: story-based autonomous workflow (requires kit)
+/plugin install stories@shousper-kit
 ```
 
 ## Recommended Plugins
@@ -130,6 +138,15 @@ node tools/claude-mem-backfill.mjs --session <uuid>
 ```
 
 Resumable — tracks state in `~/.claude-mem/backfill-state.json`. Safe to interrupt with Ctrl+C and re-run.
+
+## Releases
+
+The two plugins version and release independently. Tags follow the `<plugin>--vX.Y.Z` naming convention on `main` (first tags land when each plugin next releases — e.g. `kit--v1.2.0`, `stories--v0.1.0`):
+
+- **kit** — version lives in `plugins/kit/.claude-plugin/plugin.json` and the marketplace entry
+- **stories** — version lives in `plugins/stories/.claude-plugin/plugin.json` and the marketplace entry
+
+To release: bump the version in the plugin's `plugin.json` **and** its `.claude-plugin/marketplace.json` entry, merge, then tag the merge commit.
 
 ## Credits
 

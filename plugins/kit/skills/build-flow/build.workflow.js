@@ -70,13 +70,13 @@ const IMPL_SCHEMA = {
   type: 'object',
   required: ['summary', 'filesTouched', 'testsPassed'],
   properties: {
-    summary: { type: 'string' },
+    summary: { type: 'string', description: 'MAX 120 words; summarize, cite files by path, never paste file bodies' },
     filesTouched: { type: 'array', items: { type: 'string' } },
     testsPassed: { type: 'boolean' },
     needsHumanInput: {
       type: 'object',
       required: ['reason'],
-      properties: { reason: { type: 'string' } },
+      properties: { reason: { type: 'string', description: 'MAX 120 words; summarize, cite files by path, never paste file bodies' } },
     },
   },
 }
@@ -88,6 +88,7 @@ const REVIEW_SCHEMA = {
     approved: { type: 'boolean' },
     findings: {
       type: 'array',
+      maxItems: 12,
       items: {
         type: 'object',
         required: ['severity', 'issue'],
@@ -95,8 +96,8 @@ const REVIEW_SCHEMA = {
           severity: { type: 'string', enum: ['critical', 'important', 'minor'] },
           file: { type: 'string' },
           line: { type: 'integer' },
-          issue: { type: 'string' },
-          fix: { type: 'string' },
+          issue: { type: 'string', description: 'MAX 60 words; summarize, cite files by path, never paste file bodies' },
+          fix: { type: 'string', description: 'MAX 60 words; summarize, cite files by path, never paste file bodies' },
         },
       },
     },

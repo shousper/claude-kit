@@ -1,10 +1,10 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
-import { ROOT } from "../utils/paths";
+import { KIT_ROOT } from "../utils/paths";
 
 describe("commands/hcl-tool.md", () => {
-  const path = resolve(ROOT, "commands/hcl-tool.md");
+  const path = resolve(KIT_ROOT, "commands/hcl-tool.md");
 
   it("exists", () => {
     expect(existsSync(path)).toBe(true);

@@ -26,7 +26,7 @@ describe("activationTests", () => {
     const withWorkspace = activationTests.filter((t) => t.workspace);
     expect(withWorkspace.length).toBeGreaterThan(0);
     for (const test of withWorkspace) {
-      expect(["go", "rust", "tailwind"]).toContain(test.workspace);
+      expect(["go", "rust", "tailwind", "stories"]).toContain(test.workspace);
     }
   });
 
@@ -40,8 +40,20 @@ describe("activationTests", () => {
     expect(negative.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("has same number of tests as before plus code-standards", () => {
-    // Original had 110 tests. We're adding 6 code-standards tests.
-    expect(activationTests.length).toBe(110 + 6);
+  it("includes stories plugin fixtures for all five skills", () => {
+    const storySkills = [
+      "stories:setup",
+      "stories:plan",
+      "stories:work",
+      "stories:cancel",
+      "stories:using-stories",
+    ];
+    for (const skill of storySkills) {
+      const entries = activationTests.filter((t) => t.skill === skill);
+      const positive = entries.filter((t) => t.shouldActivate);
+      const negative = entries.filter((t) => !t.shouldActivate);
+      expect(positive.length).toBeGreaterThanOrEqual(3);
+      expect(negative.length).toBeGreaterThanOrEqual(3);
+    }
   });
 });

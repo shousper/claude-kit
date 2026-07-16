@@ -13,6 +13,7 @@ const REQUIRED_PASSES = 2;
 const PER_TRIAL_TIMEOUT = 120_000;
 const MAX_TURNS = 10;
 const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "1";
+const RUN_EVALS = process.env.RUN_EVALS === "1";
 
 interface Scenario {
   name: string;
@@ -47,7 +48,7 @@ function truncate(s: string, max = 300): string {
   return s.length <= max ? s : s.slice(0, max) + `... (${s.length} chars total)`;
 }
 
-describe("build-flow workflow invocation", () => {
+describe.skipIf(!RUN_EVALS)("build-flow workflow invocation", () => {
   for (const scenario of SCENARIOS) {
     it(
       scenario.name,

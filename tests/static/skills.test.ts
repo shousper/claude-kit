@@ -3,25 +3,46 @@ import { readdirSync, existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { resolve } from "path";
 import { parseSkill, type ParsedSkill } from "../utils/skill-parser";
-import { SKILLS_DIR } from "../utils/paths";
+import { KIT_ROOT, STORIES_ROOT } from "../utils/paths";
 
-const skillDirs = readdirSync(SKILLS_DIR, { withFileTypes: true })
-  .filter((e) => e.isDirectory())
-  .map((e) => e.name);
+const PLUGIN_SKILL_ROOTS: Record<string, string> = {
+  kit: resolve(KIT_ROOT, "skills"),
+  stories: resolve(STORIES_ROOT, "skills"),
+};
+
+interface Entry {
+  ns: string;
+  dir: string;
+  path: string;
+  key: string;
+}
+
+const entries: Entry[] = Object.entries(PLUGIN_SKILL_ROOTS)
+  .filter(([, root]) => existsSync(root))
+  .flatMap(([ns, root]) =>
+    readdirSync(root, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => ({ ns, dir: e.name, path: resolve(root, e.name), key: `${ns}:${e.name}` })),
+  );
+
+const namesByNs: Record<string, Set<string>> = {};
+for (const ns of Object.keys(PLUGIN_SKILL_ROOTS)) namesByNs[ns] = new Set();
+for (const e of entries) namesByNs[e.ns].add(e.dir);
+
 const skills: Record<string, ParsedSkill> = {};
 
 beforeAll(async () => {
   await Promise.all(
-    skillDirs.map(async (dir) => {
-      skills[dir] = await parseSkill(resolve(SKILLS_DIR, dir, "SKILL.md"));
+    entries.map(async (e) => {
+      skills[e.key] = await parseSkill(resolve(e.path, "SKILL.md"));
     }),
   );
 });
 
 describe("skill frontmatter", () => {
   it("every skill has non-empty name and description", () => {
-    for (const dir of skillDirs) {
-      const { frontmatter } = skills[dir];
+    for (const e of entries) {
+      const { frontmatter } = skills[e.key];
       expect(frontmatter.name).toBeString();
       expect((frontmatter.name as string).length).toBeGreaterThan(0);
       expect(frontmatter.description).toBeString();
@@ -30,55 +51,53 @@ describe("skill frontmatter", () => {
   });
 
   it("every skill name is kebab-case", () => {
-    for (const dir of skillDirs) {
-      const name = skills[dir].frontmatter.name as string;
-      expect(name).toMatch(/^[a-z0-9-]+$/);
+    for (const e of entries) {
+      expect(skills[e.key].frontmatter.name as string).toMatch(/^[a-z0-9-]+$/);
     }
   });
 
   it("every skill name matches its directory name", () => {
-    for (const dir of skillDirs) {
-      expect(skills[dir].frontmatter.name).toBe(dir);
+    for (const e of entries) {
+      expect(skills[e.key].frontmatter.name).toBe(e.dir);
     }
   });
 
   it("frontmatter contains at least name and description", () => {
-    for (const dir of skillDirs) {
-      const keys = Object.keys(skills[dir].frontmatter);
+    for (const e of entries) {
+      const keys = Object.keys(skills[e.key].frontmatter);
       expect(keys).toContain("name");
       expect(keys).toContain("description");
     }
   });
-
 });
 
 describe("skill structure", () => {
   it("every skill has exactly one H1 heading with non-empty text", () => {
-    for (const dir of skillDirs) {
-      const h1s = skills[dir].headings.filter((h) => h.depth === 1);
-      expect(h1s.length).toBe(1);
+    for (const e of entries) {
+      const h1s = skills[e.key].headings.filter((h) => h.depth === 1);
+      expect(h1s.length, e.key).toBe(1);
       expect(h1s[0].text.trim().length).toBeGreaterThan(0);
     }
   });
 
   it("every skill has valid heading hierarchy (no skipped levels)", () => {
-    for (const dir of skillDirs) {
-      const { headings } = skills[dir];
+    for (const e of entries) {
+      const { headings } = skills[e.key];
       for (let i = 1; i < headings.length; i++) {
-        const jump = headings[i].depth - headings[i - 1].depth;
-        expect(jump).toBeLessThanOrEqual(1);
+        expect(headings[i].depth - headings[i - 1].depth, e.key).toBeLessThanOrEqual(1);
       }
     }
   });
-
 });
 
 describe("skill cross-references", () => {
-  it("all kit: refs point to existing skills", () => {
-    const allNames = new Set(skillDirs);
-    for (const dir of skillDirs) {
-      for (const ref of skills[dir].crossRefs) {
-        expect(allNames.has(ref)).toBe(true);
+  it("all namespaced refs resolve to an existing skill in the referenced plugin", () => {
+    for (const e of entries) {
+      for (const ref of skills[e.key].namespacedRefs) {
+        expect(
+          namesByNs[ref.ns]?.has(ref.name),
+          `${e.key} references ${ref.ns}:${ref.name}`,
+        ).toBe(true);
       }
     }
   });
@@ -86,32 +105,28 @@ describe("skill cross-references", () => {
 
 describe("skill companion files", () => {
   it("all referenced .md files exist on disk", async () => {
-    for (const dir of skillDirs) {
-      const skillDir = resolve(SKILLS_DIR, dir);
-      const content = await readFile(resolve(skillDir, "SKILL.md"), "utf-8");
+    for (const e of entries) {
+      const content = await readFile(resolve(e.path, "SKILL.md"), "utf-8");
       // Strip fenced code blocks to avoid matching example references
       const stripped = content.replace(/```[\s\S]*?```/g, "");
       const refs = new Set<string>();
       // Match backtick-quoted local .md refs: `./file.md`, `file.md`, `subdir/file.md`
-      for (const m of stripped.matchAll(/`(\.\/)?([a-z][\w./-]*\.md)`/g))
-        refs.add(m[2]);
+      for (const m of stripped.matchAll(/`(\.\/)?([a-z][\w./-]*\.md)`/g)) refs.add(m[2]);
       // Match @file.md references (simple filenames only)
-      for (const m of stripped.matchAll(/@([a-z][\w-]*\.md)\b/g))
-        refs.add(m[1]);
+      for (const m of stripped.matchAll(/@([a-z][\w-]*\.md)\b/g)) refs.add(m[1]);
       // Match plain-text "see file.md" style references (simple filenames only)
-      for (const m of stripped.matchAll(/(?:see |See |\*\*)`?([a-z][\w-]*\.md)`?\*?\*?/g))
-        refs.add(m[1]);
+      for (const m of stripped.matchAll(/(?:see |See |\*\*)`?([a-z][\w-]*\.md)`?\*?\*?/g)) refs.add(m[1]);
       // Normalize paths: strip skill dir prefix (e.g. `code-review/code-reviewer.md` -> `code-reviewer.md`)
       const normalized = new Set<string>();
       for (const ref of refs) {
         if (ref === "SKILL.md" || ref === "CLAUDE.md") continue;
-        const stripped = ref.startsWith(`${dir}/`) ? ref.slice(dir.length + 1) : ref;
+        const local = ref.startsWith(`${e.dir}/`) ? ref.slice(e.dir.length + 1) : ref;
         // Skip cross-skill deep paths (still contain /)
-        if (stripped.includes("/")) continue;
-        normalized.add(stripped);
+        if (local.includes("/")) continue;
+        normalized.add(local);
       }
       for (const ref of normalized) {
-        expect(existsSync(resolve(skillDir, ref))).toBe(true);
+        expect(existsSync(resolve(e.path, ref)), `${e.key} -> ${ref}`).toBe(true);
       }
     }
   });

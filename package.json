@@ -2,8 +2,8 @@
   "name": "claude-kit-tests",
   "private": true,
   "scripts": {
-    "test": "bun test tests/static",
-    "test:evals": "bun test tests/evals --concurrent --max-concurrency 8 --timeout 120000",
+    "test": "bun test tests/static tests/stories tests/fixtures tests/utils",
+    "test:evals": "bun test tests/evals --concurrent --max-concurrency 4 --timeout 120000",
     "test:evals:smoke": "bun test tests/utils/config-dir.test.ts --timeout 60000",
     "test:all": "bun test"
   },
