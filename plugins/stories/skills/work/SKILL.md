@@ -101,6 +101,14 @@ Fill every placeholder (story file path, worktree, evidence paths — paths, nev
 
 Learned something the other workers need — a build quirk, a flaky suite, a naming decision? Append it: `story loop learn "<one-liner>"`. The tick injects shared learnings into every worker's re-prompt.
 
+## Context discipline
+
+The board holds ALL state — your session context is disposable, so keep it thin. A worker session that grows to hundreds of turns pays cache reads on its entire context every turn; measured runs show this dwarfs the cost of the actual work.
+
+- The orchestrator touches only: the `story` CLI, skill invocations, and agent dispatches. Probes, gate captures, spike scripts, and verification runs happen inside build-flow or dispatched subagents — never inline in your session.
+- Never Read implementation files, diffs, or full test output into your context. The story file, gate evidence, and structured agent returns are the record; build-flow's `verification.summary` is the test evidence.
+- After `story done`, if your context has grown large, compact before claiming the next story — everything needed to continue (board, learnings, loop state) is on disk.
+
 ## Budgets and visibility
 
 Global iterations and per-story fix rounds come from config (defaults 10 / 3). The Stop hook's system message shows `iteration N/M` — your human partner watches it. Runs end on: goal complete, board drained or blocked, or budget exhausted. The final summary MUST surface parked questions verbatim and list in-review stories awaiting humans.
@@ -111,6 +119,7 @@ Global iterations and per-story fix rounds come from config (defaults 10 / 3). T
 
 - Hand-edit `stories/**`, loop state, learnings, or evidence files — CLI only.
 - Implement outside the story's worktree, or without a claim.
+- Run probes, captures, or verification inline in the worker session — dispatch them; read only structured results back.
 - Close a story any way other than a passing `story done`.
 - Fake, infer, or self-author a review-gate verdict.
 - Expand a story's scope — file discovered work instead.

@@ -11,11 +11,14 @@ export const meta = {
 
 const diffRef = args.diffRef ?? 'main'
 const ledgerText = args.ledger ? JSON.stringify(args.ledger) : 'none'
+// Sonnet-first: measured across 6 weeks of runs, 69% of review agents return
+// zero actionable findings — Opus everywhere was paying frontier rates for
+// "LGTM". Architecture keeps Opus as the one deep-judgment safety net.
 const DIMS = args.reviewDims ?? [
   { key: 'correctness', focus: 'logic errors, bugs, broken edge cases, race conditions', model: 'sonnet', effort: 'high' },
-  { key: 'quality', focus: 'separation of concerns, DRY, naming, error handling, maintainability', model: 'opus', effort: 'xhigh' },
+  { key: 'quality', focus: 'separation of concerns, DRY, naming, error handling, maintainability', model: 'sonnet', effort: 'high' },
   { key: 'tests', focus: 'tests verify real behavior (not mocks), edge cases covered, all passing', model: 'sonnet', effort: 'high' },
-  { key: 'security', focus: 'injection, auth, secrets, unsafe operations', model: 'opus', effort: 'xhigh' },
+  { key: 'security', focus: 'injection, auth, secrets, unsafe operations', model: 'sonnet', effort: 'high' },
   { key: 'architecture', focus: 'plan/design alignment, module boundaries, sound abstractions, scalability', model: 'opus', effort: 'xhigh' },
 ]
 

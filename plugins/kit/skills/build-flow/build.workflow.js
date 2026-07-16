@@ -1,10 +1,11 @@
 export const meta = {
   name: 'build-flow-batch-runner',
-  description: 'Executes an implementation plan batch-by-batch (implement sequentially, then parallel spec+quality review with a staged fix-loop). Returns done or blocked; never commits.',
+  description: 'Executes an implementation plan batch-by-batch (implement sequentially, then parallel spec+quality review with a staged fix-loop and scoped re-checks), ending with a full-suite verification. Returns done or blocked; never commits.',
   phases: [
     { title: 'Implement' },
     { title: 'Review' },
     { title: 'Fix' },
+    { title: 'Verify' },
   ],
 }
 
@@ -104,6 +105,27 @@ const REVIEW_SCHEMA = {
   },
 }
 
+const VERIFY_SCHEMA = {
+  type: 'object',
+  required: ['passed', 'summary'],
+  properties: {
+    passed: { type: 'boolean' },
+    summary: { type: 'string', description: 'MAX 60 words; e.g. "412 tests pass, lint clean" or what failed' },
+    failures: {
+      type: 'array',
+      maxItems: 12,
+      items: {
+        type: 'object',
+        required: ['check', 'detail'],
+        properties: {
+          check: { type: 'string', description: 'failing test name or lint rule' },
+          detail: { type: 'string', description: 'MAX 30 words; file + expected vs actual — never paste logs' },
+        },
+      },
+    },
+  },
+}
+
 const ledgerText = (l) =>
   `Decisions: ${l.decisions.join(' | ') || 'none'}\n` +
   `Conventions: ${l.conventions.join(' | ') || 'none'}\n` +
@@ -126,7 +148,8 @@ ${ledgerText(ledger)}
 ## How to work
 - Follow TDD: write the failing test FIRST, run it to confirm it fails, then implement the minimal code to pass.
 - Follow existing patterns in the codebase. YAGNI — build only what the task specifies.
-- Run the relevant tests; confirm they pass. Do not commit.
+- Run ONLY the tests relevant to this task, with a quiet reporter; confirm they pass. Never run the full suite — a final verification stage runs it once at the end of the run. Do not commit.
+- Keep your context lean: read files in relevant sections rather than whole files; pipe long command output through filters (\`tail\`, \`grep\`) instead of dumping it.
 - Self-review before reporting: completeness vs the task, clear names, no overbuilding, tests verify real behavior.
 
 ## If you cannot proceed
@@ -155,7 +178,7 @@ ${ledgerText(ledger)}
 Check: separation of concerns, error handling, type safety, DRY, edge cases; sound design and security; tests verify real behavior (not mocks), edge cases covered, all passing. Flag architectural drift across batches using the ledger. Return approved + findings (severity critical|important|minor, with file/line/issue/fix).`
 
 const fixPrompt = (batch, findings) =>
-  `Reviewers found issues in the current batch. Fix each one in the worktree (do NOT commit), then re-run tests to confirm.
+  `Reviewers found issues in the current batch. Fix each one in the worktree (do NOT commit), then re-run ONLY the affected tests (quiet reporter) to confirm — never the full suite.
 
 ## Findings to fix
 ${findingsText(findings)}
@@ -167,6 +190,35 @@ ${batchText(batch)}
 ${ledgerText(ledger)}
 
 If a finding is wrong or impossible to satisfy, set needsHumanInput.reason instead of guessing. Return a summary, files touched, and whether tests passed.`
+
+const recheckPrompt = (batch, findings) =>
+  `A fix agent just addressed the review findings below in the current worktree. Verify the fixes — do NOT re-review the whole batch.
+
+## Findings that were supposedly fixed
+${findingsText(findings)}
+
+## Batch tasks (context)
+${batchText(batch)}
+
+Inspect the current code yourself (targeted diffs on the affected files); do not trust the fixer's summary. Check each finding is genuinely resolved and that the fix introduced no new problem in the code it touched. Return approved + findings containing ONLY findings that remain unresolved or were newly introduced by the fixes (severity critical|important|minor).`
+
+const verifyPrompt = () =>
+  `Final verification for the whole run, in the current git worktree. Do NOT change any code.
+
+1. Discover the project's full test and lint commands (package.json scripts, Makefile, mise.toml, pyproject.toml, etc.).
+2. Run the FULL test suite, then the linter. Keep your context lean: use quiet reporters where available and pipe output through a filter (e.g. \`... 2>&1 | tail -40\`) so only summaries and failures enter your context — never read full passing output.
+3. Return passed=true only if both are clean. On failure, return one entry per failing test/lint rule with a one-line detail an independent fix agent can act on (file, expected vs actual) — never paste logs.`
+
+const verifyFixPrompt = (verification) =>
+  `The final full-suite verification failed. Fix each failure in the worktree (do NOT commit), then re-run ONLY the affected tests/lint rules with a quiet reporter to confirm — the verifier re-runs the full suite after you.
+
+## Failures
+${(verification.failures ?? []).map((f) => `- ${f.check}: ${f.detail}`).join('\n')}
+
+## Cross-task ledger
+${ledgerText(ledger)}
+
+If a failure is pre-existing on the base branch or needs an unplanned decision, set needsHumanInput.reason instead of guessing.`
 
 for (let b = startBatch; b < batches.length; b++) {
   const batch = batches[b]
@@ -185,18 +237,25 @@ for (let b = startBatch; b < batches.length; b++) {
     if (r) results.push({ batch: b, task: task.id, ...r })
   }
 
-  // Review gate: spec + quality in parallel, with a staged fix-loop.
+  // Review gate: ONE full spec+quality review per batch, then a staged fix-loop
+  // with scoped re-checks. Re-checks verify the specific findings and the code
+  // the fixes touched — never a second full review (reviews outnumbering
+  // implementation 2:1 was the single largest measured token sink).
   phase('Review')
+  const finalBatch = b === batches.length - 1
+  const [spec, quality] = await parallel([
+    () => agent(specPrompt(batch), { label: `spec:b${b + 1}`, phase: 'Review', model: 'sonnet', effort: 'high', schema: REVIEW_SCHEMA }),
+    // Quality reviews run on Sonnet; the final batch escalates to Opus — its
+    // `git diff main` covers the whole run, so this is the run-level safety net.
+    () => agent(qualityPrompt(batch), {
+      label: `quality:b${b + 1}`, phase: 'Review',
+      model: finalBatch ? 'opus' : 'sonnet', effort: finalBatch ? 'xhigh' : 'high', schema: REVIEW_SCHEMA,
+    }),
+  ])
+  let findings = [...(spec?.findings ?? []), ...(quality?.findings ?? [])]
+    .filter((f) => f.severity === 'critical' || f.severity === 'important')
   let round = 0
-  for (;;) {
-    const [spec, quality] = await parallel([
-      () => agent(specPrompt(batch), { label: `spec:b${b + 1}`, phase: 'Review', model: 'sonnet', effort: 'high', schema: REVIEW_SCHEMA }),
-      () => agent(qualityPrompt(batch), { label: `quality:b${b + 1}`, phase: 'Review', model: 'opus', effort: 'xhigh', schema: REVIEW_SCHEMA }),
-    ])
-    const findings = [...(spec?.findings ?? []), ...(quality?.findings ?? [])]
-      .filter((f) => f.severity === 'critical' || f.severity === 'important')
-    if (findings.length === 0) break
-
+  while (findings.length > 0) {
     if (round >= MAX_FIX_ROUNDS) {
       return { status: 'blocked', blockedAtBatch: b, reason: `Review unresolved after ${MAX_FIX_ROUNDS} fix round(s)`, findings, ledger, results }
     }
@@ -208,10 +267,31 @@ for (let b = startBatch; b < batches.length; b++) {
       return { status: 'blocked', blockedAtBatch: b, reason: fix.needsHumanInput.reason, findings, ledger, results }
     }
     round++
+    const recheck = await agent(recheckPrompt(batch, findings), { label: `recheck:b${b + 1}:r${round}`, phase: 'Review', model: 'sonnet', effort: 'high', schema: REVIEW_SCHEMA })
+    findings = (recheck?.findings ?? []).filter((f) => f.severity === 'critical' || f.severity === 'important')
   }
 
   ledger.decisions.push(`Batch ${b + 1} (${batch.map((t) => t.id).join(', ')}) implemented and reviewed clean.`)
   log(`Batch ${b + 1} complete.`)
 }
 
-return { status: 'done', results, ledger }
+// Final verification: the ONE place the full suite + linter run. Batch agents
+// run only task-scoped tests, and the structured summary keeps raw test output
+// out of the orchestrator's context entirely.
+phase('Verify')
+let verification = null
+for (let v = 0; ; v++) {
+  verification = await agent(verifyPrompt(), { label: `verify:r${v + 1}`, phase: 'Verify', model: 'sonnet', effort: 'low', schema: VERIFY_SCHEMA })
+  if (!verification || verification.passed) break
+  if (v >= 2) {
+    return { status: 'blocked', blockedAtBatch: batches.length - 1, reason: `Final verification still failing after ${v} fix round(s): ${verification.summary}`, findings: verification.failures, ledger, results }
+  }
+  log(`Final verification failed (${verification.failures?.length ?? 0} failure(s)) — fix round ${v + 1}`)
+  const fix = await agent(verifyFixPrompt(verification), { label: `verify-fix:r${v + 1}`, phase: 'Verify', model: v === 0 ? 'sonnet' : 'opus', effort: 'high', schema: IMPL_SCHEMA })
+  if (fix && fix.needsHumanInput) {
+    return { status: 'blocked', blockedAtBatch: batches.length - 1, reason: fix.needsHumanInput.reason, findings: verification.failures, ledger, results }
+  }
+}
+ledger.decisions.push(`Final verification: ${verification ? verification.summary : 'verifier returned no result'}`)
+
+return { status: 'done', results, ledger, verification }

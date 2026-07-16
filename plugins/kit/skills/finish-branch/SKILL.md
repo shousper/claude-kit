@@ -17,12 +17,16 @@ Guide completion of development work by presenting clear options and handling ch
 
 ### Step 1: Verify Tests
 
-**Before presenting options, verify tests pass:**
+**Skip the re-run when verification is already fresh.** If build-flow's final Verify stage (or another full-suite run this session) passed AND nothing has changed since — check `git status` is clean relative to that run and no files were edited after it — do not re-run. Report: "Tests verified by build-flow's final verification; no changes since." and continue to Step 2. Your human partner can always ask for a re-run.
+
+**Otherwise, verify tests pass:**
 
 ```bash
-# Run project's test suite
-npm test / cargo test / pytest / go test ./...
+# Run project's test suite — read the summary, not the full output
+npm test / cargo test / pytest / go test ./...  2>&1 | tail -30
 ```
+
+Never read full passing test output into your context — the summary line is the evidence. On failure, extract only the failing cases.
 
 **If tests fail:**
 ```
@@ -194,7 +198,7 @@ After completing the chosen option, note:
 - Stage `docs/plans/*.md` files
 
 **Always:**
-- Verify tests before offering options
+- Verify tests before offering options (a fresh, unchanged build-flow verification counts — don't re-run for ritual's sake)
 - Present exactly 4 options
 - Get typed confirmation for Option 4
 - Let user control staging and committing

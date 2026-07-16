@@ -101,6 +101,19 @@ When multiple skills could apply, use this order:
 
 The skill itself tells you which.
 
+## Fan-out Economics
+
+A subagent fleet's cost is agent count × context size × model rate — dominated by cache traffic, not output. When spawning subagents or authoring ad-hoc workflows, pick the model per stage explicitly. Never let a fleet silently inherit an Opus or Fable session model:
+
+| Stage | Default |
+|---|---|
+| Scouts, search, file surveys, mechanical transforms, running tests | haiku (or sonnet), effort low |
+| Implementation, review, fixing | sonnet, effort high |
+| Hardest judgment calls (final quality gate, architecture, adversarial verify of critical findings) | opus, effort xhigh |
+| fable | only on explicit human request |
+
+Kit's bundled workflows (build-flow, code-review) already pin models per stage. This table governs everything else — one-off Agent calls and workflows you author on the fly. Every agent also keeps its own context lean: scoped test runs with quiet reporters, partial file reads, filtered command output.
+
 ## User Instructions
 
 Instructions say WHAT, not HOW. "Add X" or "Fix Y" doesn't mean skip workflows.

@@ -96,12 +96,15 @@ describe("build-flow runner input handling", () => {
 // agent() responses per role. Roles are identified by the runner's own prompt text,
 // so the tests break if those prompts drift in a way that changes the contract.
 
-type Role = "impl" | "spec" | "quality" | "fix" | "unknown";
+type Role = "impl" | "spec" | "quality" | "fix" | "recheck" | "verify" | "verify-fix" | "unknown";
 const roleOf = (p: string): Role =>
   p.includes("You are implementing ONE task") ? "impl"
   : p.includes("spec-compliance reviewer") ? "spec"
   : p.includes("code-quality reviewer") ? "quality"
   : p.includes("Reviewers found issues") ? "fix"
+  : p.includes("A fix agent just addressed") ? "recheck"
+  : p.includes("Final verification for the whole run") ? "verify"
+  : p.includes("full-suite verification failed") ? "verify-fix"
   : "unknown";
 
 interface Call { role: Role; prompt: string; opts?: AgentOpts }
@@ -126,7 +129,11 @@ async function runFlow(args: unknown, respond: Respond): Promise<Run & { calls: 
 
 const clean = { approved: true, findings: [] };
 const impl = { summary: "done", filesTouched: ["x.ts"], testsPassed: true };
-const allClean: Respond = (role) => (role === "impl" || role === "fix" ? impl : clean);
+const verified = { passed: true, summary: "all tests pass, lint clean" };
+const allClean: Respond = (role) =>
+  role === "impl" || role === "fix" || role === "verify-fix" ? impl
+  : role === "verify" ? verified
+  : clean;
 
 // Use a distinctive marker in the prompt so tests can identify which task ran without
 // colliding with the runner's own template prose (e.g. "implement and test only").
@@ -139,9 +146,10 @@ describe("build-flow runner execution flow", () => {
 
     expect(r.status).toBe("done");
     expect(r.results).toHaveLength(1);
-    expect(r.calls.map((c) => c.role)).toEqual(["impl", "spec", "quality"]);
-    expect(r.ledger?.decisions).toHaveLength(1);
+    expect(r.calls.map((c) => c.role)).toEqual(["impl", "spec", "quality", "verify"]);
+    expect(r.ledger?.decisions).toHaveLength(2);
     expect(r.ledger?.decisions[0]).toMatch(/reviewed clean/i);
+    expect(r.ledger?.decisions[1]).toMatch(/verification/i);
   });
 
   it("implements batches in dependency order", async () => {
@@ -163,28 +171,33 @@ describe("build-flow runner execution flow", () => {
     expect(implPrompts.some((p) => p.includes("TASKMARK:b"))).toBe(true);
   });
 
-  it("runs one fix round when a review finds a critical issue, then converges", async () => {
-    const r = await runFlow({ batches: [[task("a")]] }, (role, { occurrence }) => {
+  it("runs one fix round with a scoped re-check — never a second full review", async () => {
+    const r = await runFlow({ batches: [[task("a")]] }, (role) => {
       if (role === "impl" || role === "fix") return impl;
-      // round 0 (first spec/quality) dirty on spec; round 1 clean
-      if (role === "spec" && occurrence === 0)
+      if (role === "verify") return verified;
+      if (role === "spec")
         return { approved: false, findings: [{ severity: "critical", issue: "bug" }] };
-      return clean;
+      return clean; // quality clean; recheck clean -> converges
     });
 
     expect(r.status).toBe("done");
     expect(r.calls.filter((c) => c.role === "fix")).toHaveLength(1);
+    // The full reviewers run exactly once; convergence is proven by the scoped recheck.
+    expect(r.calls.filter((c) => c.role === "spec")).toHaveLength(1);
+    expect(r.calls.filter((c) => c.role === "quality")).toHaveLength(1);
+    expect(r.calls.filter((c) => c.role === "recheck")).toHaveLength(1);
+    expect(r.calls.find((c) => c.role === "recheck")?.opts?.model).toBe("sonnet");
   });
 
-  it("blocks when review findings never converge within maxFixRounds", async () => {
+  it("blocks when recheck findings never converge within maxFixRounds", async () => {
+    const dirty = { approved: false, findings: [{ severity: "important", issue: "still broken" }] };
     const r = await runFlow(
       { batches: [[task("a")]], maxFixRounds: 2 },
       (role) =>
-        role === "impl" || role === "fix"
-          ? impl
-          : role === "spec"
-            ? { approved: false, findings: [{ severity: "important", issue: "still broken" }] }
-            : clean,
+        role === "impl" || role === "fix" ? impl
+        : role === "spec" || role === "recheck" ? dirty
+        : role === "verify" ? verified
+        : clean,
     );
 
     expect(r.status).toBe("blocked");
@@ -194,18 +207,52 @@ describe("build-flow runner execution flow", () => {
   });
 
   it("escalates the fix model from sonnet to opus on the final round", async () => {
+    const dirty = { approved: false, findings: [{ severity: "critical", issue: "x" }] };
     const r = await runFlow(
       { batches: [[task("a")]], maxFixRounds: 2 },
       (role) =>
-        role === "impl" || role === "fix"
-          ? impl
-          : role === "spec"
-            ? { approved: false, findings: [{ severity: "critical", issue: "x" }] }
-            : clean,
+        role === "impl" || role === "fix" ? impl
+        : role === "spec" || role === "recheck" ? dirty
+        : role === "verify" ? verified
+        : clean,
     );
 
     const fixModels = r.calls.filter((c) => c.role === "fix").map((c) => c.opts?.model);
     expect(fixModels).toEqual(["sonnet", "opus"]);
+  });
+
+  it("escalates the quality review to opus only on the final batch", async () => {
+    const r = await runFlow({ batches: [[task("a")], [task("b")]] }, allClean);
+
+    expect(r.status).toBe("done");
+    const quality = r.calls.filter((c) => c.role === "quality");
+    expect(quality.map((c) => c.opts?.model)).toEqual(["sonnet", "opus"]);
+    expect(quality.map((c) => c.opts?.effort)).toEqual(["high", "xhigh"]);
+  });
+
+  it("runs the final verification once and dispatches a verify-fix on failure", async () => {
+    const r = await runFlow({ batches: [[task("a")]] }, (role, { occurrence }) => {
+      if (role === "verify")
+        return occurrence === 0
+          ? { passed: false, summary: "1 test failing", failures: [{ check: "t1", detail: "x != y" }] }
+          : verified;
+      return allClean(role, { prompt: "", occurrence, calls: [] });
+    });
+
+    expect(r.status).toBe("done");
+    expect(r.calls.filter((c) => c.role === "verify")).toHaveLength(2);
+    expect(r.calls.filter((c) => c.role === "verify-fix")).toHaveLength(1);
+    expect((r as Run & { verification?: { passed: boolean } }).verification?.passed).toBe(true);
+  });
+
+  it("blocks when the final verification never converges", async () => {
+    const failing = { passed: false, summary: "still failing", failures: [{ check: "t1", detail: "x != y" }] };
+    const r = await runFlow({ batches: [[task("a")]] }, (role) =>
+      role === "verify" ? failing : allClean(role, { prompt: "", occurrence: 0, calls: [] }),
+    );
+
+    expect(r.status).toBe("blocked");
+    expect(r.reason).toMatch(/verification/i);
   });
 
   it("blocks immediately when an implementer needs human input, before any review", async () => {

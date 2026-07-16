@@ -60,13 +60,14 @@ Markdown stays the human format — you parse it into structure at runtime.
    - If `scriptPath` rejects a bundled path, read the file and pass its contents as inline `script` instead.
    - **Sanity-check the launch.** A real run spawns agents and takes seconds-to-minutes. An almost-instant `blocked` with a "no batches" reason means an empty or truncated payload — fix `args` and relaunch; never report a no-op as success.
 6. **Handle the result:**
-   - `status: 'done'` → merge the returned `ledger`, present a final summary, then the iteration choice below.
+   - `status: 'done'` → merge the returned `ledger`, report `verification.summary` as the test evidence (the workflow already ran the full suite + linter — do NOT re-run it or read test output yourself), present a final summary, then the iteration choice below.
    - `status: 'blocked'` → surface `reason`, `blockedAtBatch`, and any `findings`, resolve with your human partner, then re-launch with `startBatch = blockedAtBatch` and the updated `ledger`.
 
 ## Autonomous Until Blocked
 
 The workflow runs batches back-to-back without pausing. It returns `blocked` ONLY when:
-- the review fix-loop can't converge after `maxFixRounds` (staged Sonnet→Opus fixing), or
+- the review fix-loop can't converge after `maxFixRounds` (staged Sonnet→Opus fixing),
+- the final full-suite verification still fails after its bounded fix rounds, or
 - an agent set `needsHumanInput` — task ambiguous/underspecified, contradicts the codebase, an unplanned decision, or a destructive/irreversible action.
 
 Otherwise it drives to `done`. Do not insert routine human checkpoints.
@@ -77,10 +78,12 @@ Otherwise it drives to `done`. Do not insert routine human checkpoints.
 |---|---|---|
 | Implementation | Sonnet | high |
 | Spec review | Sonnet | high |
-| Quality review | Opus | xhigh |
+| Quality review | Sonnet (Opus on the final batch — its cumulative diff review is the whole-run safety net) | high (xhigh on final) |
 | Fix (staged) | Sonnet → Opus | high |
+| Post-fix re-check (scoped to the findings) | Sonnet | high |
+| Final verification (full suite + lint, once per run) | Sonnet | low |
 
-Planning (kit:brainstorming, kit:writing-plans) runs in the main session — run those in an Opus max/xhigh session. The workflow pins the above regardless of session model.
+Planning (kit:brainstorming, kit:writing-plans) runs in the main session — run those in an Opus max/xhigh session. The workflow pins the above regardless of session model. Reviews are deliberately Sonnet-first: transcript analysis showed 69% of review gates return zero actionable findings, so Opus is reserved for the one review whose diff covers the entire run.
 
 ## Interruptibility
 
@@ -89,6 +92,15 @@ Background execution keeps this session live — watch progress via `/workflows`
 ## Observability
 
 The workflow emits `log()` progress and descriptive labels; every batch returns schema-structured results and findings, surfaced at each return. The ledger is the durable, human-readable execution record.
+
+## Orchestrator Context Discipline
+
+A long main session pays cache reads on its ENTIRE context every turn — the orchestrator's frugality matters more than the agents'. While a workflow runs and after it returns:
+
+- Consume only the structured returns (`results`, `findings`, `ledger`, `verification`). Never Read implementation files, diffs, or test output into the main session to "double-check" the workflow — that's what the review gate and final verification are for.
+- On `blocked`, read the minimum needed to resolve the blocker: the findings/reason text, not the files they mention.
+- `verification.summary` IS the test evidence. Do not re-run the suite in the main session.
+- After completion, recommend a fresh session (`/clear`) before the next feature — the plan, ledger, worktree, and branch all survive on disk; a bloated session is the only thing that doesn't need to.
 
 ## After Completion
 
@@ -112,6 +124,7 @@ Invocable either way. The only difference is a reminder: if continuing in a long
 
 **Never:**
 - Commit during implementation (commits are your human partner's decision).
+- Read implementation files, diffs, or full test output into the orchestrator session — structured returns are the record.
 - Build on main/master without explicit consent.
 - Insert routine pauses — drive until done or genuinely blocked.
 - Make agents re-read the plan file — pass full task text via `args`.
