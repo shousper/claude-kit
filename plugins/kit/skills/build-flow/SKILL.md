@@ -59,9 +59,9 @@ Markdown stays the human format — you parse it into structure at runtime.
    - `args` may be this object **or** a valid JSON string of it — the runner normalizes either. There is no `run_in_background` param (it's already background); unknown params error out. The only launches that fail are a **truncated/malformed payload** or **zero batches**.
    - If `scriptPath` rejects a bundled path, read the file and pass its contents as inline `script` instead.
    - **Sanity-check the launch.** A real run spawns agents and takes seconds-to-minutes. An almost-instant `blocked` with a "no batches" reason means an empty or truncated payload — fix `args` and relaunch; never report a no-op as success.
-6. **Handle the result:**
-   - `status: 'done'` → merge the returned `ledger`, report `verification.summary` as the test evidence (the workflow already ran the full suite + linter — do NOT re-run it or read test output yourself), present a final summary, then the iteration choice below.
-   - `status: 'blocked'` → surface `reason`, `blockedAtBatch`, and any `findings`, resolve with your human partner, then re-launch with `startBatch = blockedAtBatch` and the updated `ledger`.
+6. **Handle the result.** The completion payload (task notification, `TaskOutput`, or a saved output file) is a harness **envelope**: `{ summary, agentCount, logs, result, workflowProgress, totalTokens, totalToolCalls }`. The runner's return value lives at **`.result`** — read `status`, `results`, `ledger`, `findings`, and `verification` from there on the FIRST extraction. There is no top-level `status`; a script that reads top-level keys gets undefineds and wastes a probe "discovering" `.result`.
+   - `result.status === 'done'` → merge the returned `ledger`, report `verification.summary` as the test evidence (the workflow already ran the full suite + linter — do NOT re-run it or read test output yourself), present a final summary, then the iteration choice below.
+   - `result.status === 'blocked'` → surface `reason`, `blockedAtBatch`, and any `findings`, resolve with your human partner, then re-launch with `startBatch = blockedAtBatch` and the updated `ledger`.
 
 ## Autonomous Until Blocked
 
@@ -88,6 +88,8 @@ Planning (kit:brainstorming, kit:writing-plans) runs in the main session — run
 ## Interruptibility
 
 Background execution keeps this session live — watch progress via `/workflows` and interject anytime. To stop, `TaskStop` the workflow; relaunch with `resumeFromRunId` to resume from cached agent results (same session). Small batches keep work-at-risk low.
+
+When re-reading a completed run later — after a usage-limit interruption, in a resumed session, via `TaskOutput`, or from a saved output file — the same envelope applies: the runner's return is under `.result`, and the top level is harness metadata. Extract from `.result` on the first attempt.
 
 ## Observability
 
