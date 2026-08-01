@@ -9,7 +9,7 @@
 // section E swaps the merge:"pr" branch in cmdDone for github.mjs.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { CliError, nowISO, run, todayISO, writeFileAtomic } from "./util.mjs";
 import { runLoopCommand } from "./loop.mjs";
 import * as board from "./board.mjs";
@@ -452,6 +452,44 @@ async function cmdDone(ctx) {
   }
   const worktree = worktrees.worktreePath(root, id);
   if (!existsSync(worktree)) throw new CliError(`no worktree at ${worktree} — claim the story first`);
+
+  // 0. Committed-work guard. Gates certify the WORKING TREE, but integration
+  // merges the BRANCH — uncommitted work passes every gate, merges nothing
+  // ("Already up to date"), and in self mode is destroyed with the worktree.
+  // Observed in the wild: stories closed "done" with zero code on base.
+  // Refuse before spending a single gate run.
+  const status = ctx.exec("git", ["status", "--porcelain"], { cwd: worktree });
+  if (status.code !== 0) {
+    throw new CliError(`git status failed in ${worktree}: ${(status.stderr || status.stdout).trim()}`);
+  }
+  const dirtyPaths = status.stdout.split("\n").filter((l) => l.trim()).map((l) => l.slice(3).trim());
+  if (dirtyPaths.length) {
+    const storiesRel = relative(root, board.storiesDir(root, config));
+    const boardEdits = dirtyPaths.filter((p) => p === storiesRel || p.startsWith(`${storiesRel}/`));
+    const boardHint = boardEdits.length
+      ? ` Board files (${boardEdits.join(", ")}) are CLI-managed — restore them (git -C ${worktree} checkout -- ${storiesRel} && git -C ${worktree} clean -fd -- ${storiesRel}), never commit them to the story branch.`
+      : "";
+    throw new CliError(
+      `uncommitted changes in ${worktree} — story done merges the story BRANCH, so uncommitted work would be lost. ` +
+        `Commit first: git -C ${worktree} add -A -- ':!${storiesRel}' && git -C ${worktree} commit -m "${id}: <what changed>", then re-run story done.` +
+        boardHint,
+    );
+  }
+
+  // 0b. Empty-branch guard: a branch with no commits beyond base merges
+  // nothing. Almost always "forgot to commit"; a genuinely codeless story
+  // (decision/spike whose artifact lives on the board or in evidence) closes
+  // with an explicit --allow-empty.
+  const ahead = ctx.exec("git", ["rev-list", "--count", `${base}..${worktrees.branchName(id)}`], { cwd: root });
+  if (ahead.code !== 0) {
+    throw new CliError(`cannot count commits on ${worktrees.branchName(id)}: ${(ahead.stderr || ahead.stdout).trim()}`);
+  }
+  if (ahead.stdout.trim() === "0" && ctx.flags["allow-empty"] !== true) {
+    throw new CliError(
+      `story branch ${worktrees.branchName(id)} has no commits beyond ${base} — nothing would merge and the story would close codeless. ` +
+        `Commit your work in the worktree first, or re-run with --allow-empty if this story genuinely changes no code.`,
+    );
+  }
 
   // 1. Command gates (in the worktree, serialized by the gate lock).
   const resolved = gatesMod.resolveGates(story, config);

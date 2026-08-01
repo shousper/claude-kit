@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { loadStories } from "../../plugins/stories/lib/board.mjs";
@@ -163,3 +163,62 @@ describe("story done — local mode", () => {
 // github.mjs's real integratePrMode dispatch — see
 // tests/stories/github-pr-create.test.ts's "story done → integratePrMode
 // dispatch (pr mode, end to end)" for the equivalent coverage.
+
+describe("story done — committed-work guards", () => {
+  // The incident these pin: build-flow leaves changes uncommitted by design;
+  // gates ran against the dirty working tree and passed, integrateSelf merged
+  // the codeless BRANCH ("Already up to date"), teardown force-removed the
+  // worktree, and three stories closed "done" with zero code on main.
+  test("refuses done while the worktree has uncommitted changes — nothing is merged or torn down", async () => {
+    const repo = await makeRepo();
+    const created = await runStory(repo.root, ["create", "--title", "uncommitted work", "--json"]);
+    const { id } = created.json() as { id: string };
+    expect((await runStory(repo.root, ["claim", id, "--session", "w1"])).code).toBe(0);
+    const wt = join(repo.root, ".worktrees", id);
+    writeFileSync(join(wt, "impl.ts"), "uncommitted code\n"); // no git add/commit
+
+    const r = await runStory(repo.root, ["done", id]);
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toMatch(/uncommitted/i);
+    expect(r.stderr).toContain("git -C"); // actionable commit instructions
+    const s = loadStories(repo.root, CONFIG).find((x) => x.id === id)!;
+    expect(s.status).toBe("in-progress"); // story not closed
+    expect(existsSync(join(wt, "impl.ts"))).toBe(true); // work preserved
+    expect(existsSync(join(repo.root, "impl.ts"))).toBe(false); // nothing merged
+    await repo.cleanup();
+  });
+
+  test("refuses done when the story branch has no commits beyond base, unless --allow-empty", async () => {
+    const repo = await makeRepo();
+    const created = await runStory(repo.root, ["create", "--title", "codeless story", "--json"]);
+    const { id } = created.json() as { id: string };
+    expect((await runStory(repo.root, ["claim", id, "--session", "w1"])).code).toBe(0);
+
+    const refused = await runStory(repo.root, ["done", id]);
+    expect(refused.code).not.toBe(0);
+    expect(refused.stderr).toMatch(/no commits/i);
+    expect(refused.stderr).toContain("--allow-empty");
+    expect(loadStories(repo.root, CONFIG).find((x) => x.id === id)!.status).toBe("in-progress");
+
+    const allowed = await runStory(repo.root, ["done", id, "--allow-empty"]);
+    expect(allowed.code).toBe(0);
+    expect(loadStories(repo.root, CONFIG).find((x) => x.id === id)!.status).toBe("done");
+    await repo.cleanup();
+  });
+
+  test("dirty board files get a restore hint, not a commit instruction", async () => {
+    const repo = await makeRepo();
+    const created = await runStory(repo.root, ["create", "--title", "board drift", "--json"]);
+    const { id } = created.json() as { id: string };
+    expect((await runStory(repo.root, ["claim", id, "--session", "w1"])).code).toBe(0);
+    const wt = join(repo.root, ".worktrees", id);
+    mkdirSync(join(wt, "stories"), { recursive: true });
+    writeFileSync(join(wt, "stories", "stray.md"), "board pollution\n");
+
+    const r = await runStory(repo.root, ["done", id]);
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toMatch(/CLI-managed/);
+    expect(r.stderr).toMatch(/checkout --/);
+    await repo.cleanup();
+  });
+});

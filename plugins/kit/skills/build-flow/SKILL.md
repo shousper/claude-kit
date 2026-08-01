@@ -34,6 +34,7 @@ Markdown stays the human format — you parse it into structure at runtime.
    Workflow({
      scriptPath: "<base>/build.workflow.js",
      args: {
+       worktree: "<absolute path to the current worktree>",
        startBatch: 0,
        maxFixRounds: 3,
        ledger: { decisions: [], conventions: [], deviations: [] },
@@ -56,6 +57,7 @@ Markdown stays the human format — you parse it into structure at runtime.
    ```
 
    - Every task carries its FULL `prompt` text — agents never re-read the plan. Never abbreviate or summarize a prompt to shrink the call.
+   - **Always pass `worktree` AND `cd` into it in your session shell immediately before launching (verify with `pwd`).** Workflow agents inherit the shell's cwd — not the path you had in mind. A wrong cwd split-brains the run across checkouts: some agents edit the main tree, reviewers report "no implementation", fixes land in the orphaned copy. After the run, `git status --porcelain` on the MAIN checkout must show no source changes — anything else means a split brain: port stray fixes into the worktree, then restore main.
    - `args` may be this object **or** a valid JSON string of it — the runner normalizes either. There is no `run_in_background` param (it's already background); unknown params error out. The only launches that fail are a **truncated/malformed payload** or **zero batches**.
    - If `scriptPath` rejects a bundled path, read the file and pass its contents as inline `script` instead.
    - **Sanity-check the launch.** A real run spawns agents and takes seconds-to-minutes. An almost-instant `blocked` with a "no batches" reason means an empty or truncated payload — fix `args` and relaunch; never report a no-op as success.
@@ -127,6 +129,7 @@ Invocable either way. The only difference is a reminder: if continuing in a long
 **Never:**
 - Commit during implementation (commits are your human partner's decision).
 - Read implementation files, diffs, or full test output into the orchestrator session — structured returns are the record.
+- Launch with the session shell outside the target worktree, or without `args.worktree` — agents inherit your cwd, and a wrong cwd split-brains the run across checkouts.
 - Build on main/master without explicit consent.
 - Insert routine pauses — drive until done or genuinely blocked.
 - Make agents re-read the plan file — pass full task text via `args`.

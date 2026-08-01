@@ -37,9 +37,15 @@ One story per iteration, in this order:
 
 ### 4. Implement via kit:build-flow — inside the worktree
 
-All implementation happens in `.worktrees/st-<id>` — cd there and stay there. Invoke kit:build-flow with the story as the plan: the story body (description, ACs, your implementation plan) is the task prompt — usually a single batch with one task. build-flow's worktree requirement is already satisfied by the story worktree; do NOT create another.
+All implementation happens in `.worktrees/st-<id>`. Three hard rules, each from a real incident:
 
-**Committing:** commit completed work to the story branch (message `st-<id>: <what changed>`) before closing. The goal loop is your human partner's standing consent to commit on `story/st-<id>` branches — never to main; integration belongs to the CLI.
+- **cd into the worktree in your session shell IMMEDIATELY before invoking kit:build-flow, verify with `pwd`, and pass the worktree path as build-flow's `args.worktree`.** Workflow agents inherit the shell's cwd, not the path named in their prompts — launching from the main repo split-brains the run (agents edit main's tree, reviewers report "no implementation", fixes land in the wrong copy). After the workflow returns, `git -C <repo-root> status --porcelain` must show only board files; anything else is a split brain — port stray changes into the worktree, then restore main.
+- **Block until build-flow completes** (TaskOutput with block=true) before gating, committing, or ending your turn. Ending the turn with a workflow still running lets the Stop hook tick the loop and re-prompt you with the NEXT story while this one is half-built.
+- build-flow's worktree requirement is already satisfied by the story worktree; do NOT create another.
+
+Invoke kit:build-flow with the story as the plan: the story body (description, ACs, your implementation plan) is the task prompt — usually a single batch with one task.
+
+**Committing — MANDATORY before closing:** `story done` merges the story BRANCH, not the working tree. build-flow leaves its work uncommitted by design, so commit it to the story branch first (message `st-<id>: <what changed>`) — the CLI refuses a dirty worktree or a zero-commit branch (use `--allow-empty` only for a genuinely codeless story). Stage code only, never `stories/**`: board files are CLI-managed — restore them with `git checkout -- stories` instead of committing them. The goal loop is your human partner's standing consent to commit on `story/st-<id>` branches — never to main; integration belongs to the CLI.
 
 ### 5. Discovered work
 
@@ -77,7 +83,7 @@ story park <id> --question "Specific, answerable question — include the option
 - `self` — merged to main, worktree torn down. Merge conflict → the story returns to in-progress with an integration-fix note: resolve in the worktree, re-gate, re-run `story done`.
 - `local` / `pr` — the story goes in-review (worktree or PR awaits a human); move on.
 
-A failing gate names itself in the output → fix in the worktree (kit:debugging for surprises), re-run `story done`. Never mark done any other way; never weaken a gate to pass it.
+A failing gate names itself in the output → fix in the worktree (kit:debugging for surprises), re-run `story done`. Gates run in a clean subprocess from the worktree — a fresh worktree may need the project's own toolchain setup (trust/install steps per the project's CLAUDE.md) before its gates can pass. Never mark done any other way; never weaken a gate to pass it.
 
 ### 9. End the iteration
 
@@ -120,6 +126,10 @@ Global iterations and per-story fix rounds come from config (defaults 10 / 3). T
 - Hand-edit `stories/**`, loop state, learnings, or evidence files — CLI only.
 - Implement outside the story's worktree, or without a claim.
 - Run probes, captures, or verification inline in the worker session — dispatch them; read only structured results back.
+- Run `story done` with uncommitted work in the worktree — the CLI now refuses, but the commit is your job, not a formality.
+- End a turn (or claim the next story) while a build-flow workflow is still running.
+- Launch build-flow with the shell cwd outside the story worktree, or without `args.worktree`.
+- Commit `stories/**` board files into a story branch.
 - Close a story any way other than a passing `story done`.
 - Fake, infer, or self-author a review-gate verdict.
 - Expand a story's scope — file discovered work instead.

@@ -245,6 +245,28 @@ describe("build-flow runner execution flow", () => {
     expect((r as Run & { verification?: { passed: boolean } }).verification?.passed).toBe(true);
   });
 
+  it("stamps every agent prompt with the worktree header when args.worktree is set", async () => {
+    const r = await runFlow(
+      { batches: [[task("a")]], worktree: "/repo/.worktrees/st-test" },
+      (role) => {
+        if (role === "spec")
+          return { approved: false, findings: [{ severity: "critical", issue: "x" }] };
+        return allClean(role, { prompt: "", occurrence: 0, calls: [] });
+      },
+    );
+
+    expect(r.status).toBe("done");
+    // impl, spec, quality, fix, recheck, verify all ran — every one carries the path
+    const roles = new Set(r.calls.map((c) => c.role));
+    expect(roles).toEqual(new Set(["impl", "spec", "quality", "fix", "recheck", "verify"]));
+    expect(r.calls.every((c) => c.prompt.includes("/repo/.worktrees/st-test"))).toBe(true);
+  });
+
+  it("omits the worktree header when args.worktree is not set", async () => {
+    const r = await runFlow({ batches: [[task("a")]] }, allClean);
+    expect(r.calls.every((c) => !c.prompt.includes("## Worktree"))).toBe(true);
+  });
+
   it("blocks when the final verification never converges", async () => {
     const failing = { passed: false, summary: "still failing", failures: [{ check: "t1", detail: "x != y" }] };
     const r = await runFlow({ batches: [[task("a")]] }, (role) =>

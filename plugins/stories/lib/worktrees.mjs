@@ -35,10 +35,18 @@ export function createWorktree(root, id, { exec = run, base = "main" } = {}) {
   const path = worktreePath(root, id);
   if (existsSync(path)) return path;
   mkdirSync(join(root, ".worktrees"), { recursive: true });
-  const args = branchExists(root, id, exec)
+  const branchExisted = branchExists(root, id, exec);
+  const args = branchExisted
     ? ["worktree", "add", path, branchName(id)]
     : ["worktree", "add", "-b", branchName(id), path, base];
   runOk("git", args, { cwd: root }, exec);
+  if (branchExisted) {
+    // A re-claimed branch may be pinned to a stale base (story parked while
+    // prerequisites merged). Fast-forward when strictly behind; --ff-only
+    // cannot rewrite a diverged branch, so in-flight commits are never touched
+    // (the failure is deliberately ignored — the worker merges base manually).
+    exec("git", ["merge", "--ff-only", base], { cwd: path });
+  }
   return path;
 }
 

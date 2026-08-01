@@ -162,3 +162,24 @@ describe("touches expansion (design §7: warn + note, never halt)", () => {
     await repo.cleanup();
   });
 });
+
+describe("story claim — stale branch reuse", () => {
+  // A story parked before any commit keeps its story/<id> branch; by the time
+  // it is re-claimed, prerequisites may have merged to base. Reusing the stale
+  // branch as-is builds on a base missing those prereqs — claim fast-forwards
+  // a strictly-behind branch to base (a diverged branch is left alone).
+  test("re-claiming an existing zero-commit branch fast-forwards it to base", async () => {
+    const repo = await makeRepo();
+    const created = await runStory(repo.root, ["create", "--title", "stale branch", "--json"]);
+    const { id } = created.json() as { id: string };
+    git(repo.root, "branch", `story/${id}`); // branch pinned at current main
+    writeFileSync(join(repo.root, "prereq.ts"), "prereq merged while parked\n");
+    git(repo.root, "add", "prereq.ts");
+    git(repo.root, "commit", "-m", "prereq lands on main");
+
+    expect((await runStory(repo.root, ["claim", id, "--session", "w1"])).code).toBe(0);
+    const head = git(join(repo.root, ".worktrees", id), "rev-parse", "HEAD").trim();
+    expect(head).toBe(git(repo.root, "rev-parse", "main").trim());
+    await repo.cleanup();
+  });
+});
