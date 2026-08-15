@@ -186,7 +186,7 @@ describe("story done → integratePrMode dispatch (pr mode, end to end)", () => 
       if (cmd === "gh") return { code: 0, stdout: "", stderr: "" };
       return run(cmd, args, opts);
     };
-    const r = await runStory(repo.root, ["done", id, "--json"], { exec });
+    const r = await runStory(repo.root, ["done", id, "--json", "--allow-unplanned"], { exec });
     expect(r.code).toBe(0);
     expect(execLines.some((l) => l.startsWith("gh pr create"))).toBe(true);
 

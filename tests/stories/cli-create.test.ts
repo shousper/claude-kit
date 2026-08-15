@@ -79,3 +79,36 @@ describe("story create", () => {
     await repo.cleanup();
   });
 });
+
+describe("story create — complexity", () => {
+  test("--complexity hard is stored and written to the file", async () => {
+    const repo = await makeRepo();
+    const r = await runStory(repo.root, ["create", "--title", "x", "--complexity", "hard", "--json"]);
+    expect(r.code).toBe(0);
+    const { id, file } = r.json() as { id: string; file: string };
+    const show = await runStory(repo.root, ["show", id, "--json"]);
+    expect((show.json() as { complexity: string }).complexity).toBe("hard");
+    expect(readFileSync(file, "utf8")).toMatch(/^complexity: hard$/m);
+    await repo.cleanup();
+  });
+
+  test("omitting --complexity defaults to routine and is not written to the file", async () => {
+    const repo = await makeRepo();
+    const r = await runStory(repo.root, ["create", "--title", "x", "--json"]);
+    expect(r.code).toBe(0);
+    const { id, file } = r.json() as { id: string; file: string };
+    const show = await runStory(repo.root, ["show", id, "--json"]);
+    expect((show.json() as { complexity: string }).complexity).toBe("routine");
+    expect(readFileSync(file, "utf8")).not.toContain("complexity:");
+    await repo.cleanup();
+  });
+
+  test("--complexity extreme is rejected with the legal list", async () => {
+    const repo = await makeRepo();
+    const r = await runStory(repo.root, ["create", "--title", "x", "--complexity", "extreme"]);
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toMatch(/routine/);
+    expect(r.stderr).toMatch(/frontier/);
+    await repo.cleanup();
+  });
+});

@@ -37,7 +37,7 @@ describe("bin/story end-to-end", () => {
     // note + show work from INSIDE the worktree (findRoot via git-common-dir)
     expect(story(wt, "note", id, "--body", "working from the worktree").code).toBe(0);
 
-    expect(story(repo.root, "done", id).code).toBe(0);
+    expect(story(repo.root, "done", id, "--allow-unplanned").code).toBe(0);
     expect(existsSync(join(repo.root, "smoke.txt"))).toBe(true); // merged into main
     expect(existsSync(wt)).toBe(false); // worktree torn down
 

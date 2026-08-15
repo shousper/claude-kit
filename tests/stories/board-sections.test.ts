@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   ID_PATTERN,
   assertValidId,
+  getSection,
   readBodySection,
+  setSection,
 } from "../../plugins/stories/lib/board.mjs";
 import { CliError } from "../../plugins/stories/lib/util.mjs";
 
@@ -36,6 +38,23 @@ describe("readBodySection", () => {
     expect(readBodySection("", "Questions")).toBe("");
     expect(readBodySection(undefined, "Questions")).toBe("");
     expect(readBodySection(null, "Questions")).toBe("");
+  });
+});
+
+describe("getSection", () => {
+  test("round-trips with setSection: set then get returns the content", () => {
+    const withSection = setSection(BODY, "## Questions", "Should gates run twice?\nOr once?");
+    expect(getSection(withSection, "## Questions")).toBe("Should gates run twice?\nOr once?");
+  });
+
+  test("returns null for a missing heading", () => {
+    expect(getSection(BODY, "## Implementation Plan")).toBeNull();
+  });
+
+  test("does not bleed into the next '## ' section", () => {
+    const withPlan = setSection(BODY, "## Description", "A different sample.");
+    expect(getSection(withPlan, "## Description")).toBe("A different sample.");
+    expect(getSection(withPlan, "## Description")).not.toContain("Acceptance Criteria");
   });
 });
 

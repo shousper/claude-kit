@@ -218,6 +218,7 @@ function adoptStory(root, config, story, known) {
     title: story.title || basename(story.file, ".md").replace(/[-_]+/g, " ").trim(),
     status: board.STATUSES.includes(story.status) ? story.status : "todo",
     priority: board.PRIORITIES.includes(story.priority) ? story.priority : undefined,
+    complexity: board.COMPLEXITIES.includes(story.complexity) ? story.complexity : undefined,
   });
   // Parity with every other doctor status change: when adoption RE-STATUSES a
   // file that already had a legal board status (a real state-machine move),

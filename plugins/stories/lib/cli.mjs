@@ -203,6 +203,7 @@ async function cmdCreate(ctx) {
       epic: ctx.flags.epic,
       status: ctx.flags.backlog === true ? "backlog" : undefined,
       priority: ctx.flags.priority,
+      complexity: ctx.flags.complexity !== undefined ? board.assertComplexity(ctx.flags.complexity) : undefined,
       depends_on: ctx.flags["depends-on"],
       discovered_from: ctx.flags["discovered-from"],
       touches: ctx.flags.touches,
@@ -368,6 +369,7 @@ async function cmdUpdate(ctx) {
       }
       s.priority = ctx.flags.priority;
     }
+    if (ctx.flags.complexity !== undefined) s.complexity = board.assertComplexity(ctx.flags.complexity);
     if (ctx.flags["depends-on"] !== undefined) s.depends_on = ctx.flags["depends-on"];
     if (ctx.flags.touches !== undefined) s.touches = ctx.flags.touches;
     if (ctx.flags.gates !== undefined) s.gates = ctx.flags.gates;
@@ -488,6 +490,17 @@ async function cmdDone(ctx) {
     throw new CliError(
       `story branch ${worktrees.branchName(id)} has no commits beyond ${base} — nothing would merge and the story would close codeless. ` +
         `Commit your work in the worktree first, or re-run with --allow-empty if this story genuinely changes no code.`,
+    );
+  }
+
+  // 0c. Plan guard: an execution-time implementation plan must be on record
+  // before gates spend anything — the planner dispatch is stories:work step 3.
+  const plan = board.getSection(story.body, "## Implementation Plan") ?? "";
+  if (plan.split(/\s+/).filter(Boolean).length < 10 && ctx.flags["allow-unplanned"] !== true) {
+    throw new CliError(
+      `story ${id} has no implementation plan on record — the planning step was skipped. ` +
+        `Save the planner's output first: story update ${id} --plan-file <file>, then re-run story done. ` +
+        `Use --allow-unplanned only when a plan genuinely adds nothing (trivial chore, decision record).`,
     );
   }
 

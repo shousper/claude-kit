@@ -15,7 +15,7 @@ import { withLock } from "./locks.mjs";
 // ---------------------------------------------------------------- format
 
 const FIELD_ORDER = [
-  "id", "title", "type", "epic", "status", "priority", "depends_on",
+  "id", "title", "type", "epic", "status", "priority", "complexity", "depends_on",
   "discovered_from", "touches", "exclusive", "gates", "feedback",
   "claim", "pr", "created", "updated",
 ];
@@ -84,12 +84,15 @@ function parseScalar(s) {
 }
 
 export function serializeStory(story) {
-  const known = FIELD_ORDER.filter((k) => story[k] !== undefined && story[k] !== null);
-  const unknown = Object.keys(story).filter(
-    (k) => k !== "body" && k !== "file" && !FIELD_ORDER.includes(k) && story[k] !== undefined && story[k] !== null,
+  // "routine" is the read-time default (applyDefaults) — omit it from the
+  // file so only non-default complexity ever shows up on disk.
+  const s = story.complexity === "routine" ? { ...story, complexity: undefined } : story;
+  const known = FIELD_ORDER.filter((k) => s[k] !== undefined && s[k] !== null);
+  const unknown = Object.keys(s).filter(
+    (k) => k !== "body" && k !== "file" && !FIELD_ORDER.includes(k) && s[k] !== undefined && s[k] !== null,
   );
-  const lines = [...known, ...unknown].map((k) => `${k}: ${serializeValue(story[k])}`);
-  return `---\n${lines.join("\n")}\n---\n${story.body ?? ""}`;
+  const lines = [...known, ...unknown].map((k) => `${k}: ${serializeValue(s[k])}`);
+  return `---\n${lines.join("\n")}\n---\n${s.body ?? ""}`;
 }
 
 function serializeValue(v) {
@@ -162,6 +165,14 @@ export function loadConfig(root) {
 
 export const STATUSES = ["backlog", "todo", "in-progress", "in-review", "done", "blocked"];
 export const PRIORITIES = ["P0", "P1", "P2", "P3"];
+export const COMPLEXITIES = ["routine", "hard", "frontier"];
+
+export function assertComplexity(v) {
+  if (!COMPLEXITIES.includes(v)) {
+    throw new CliError(`invalid complexity "${v}" — expected one of: ${COMPLEXITIES.join(", ")}`);
+  }
+  return v;
+}
 
 // Stored-status state machine (design §6). "ready" is computed, never stored.
 // done is terminal — no silent reopens; blocked only unparks to todo.
@@ -186,6 +197,7 @@ export function applyDefaults(story) {
   s.type ??= "feature";
   s.status ??= "todo";
   s.priority ??= "P2";
+  s.complexity ??= "routine";
   s.depends_on ??= [];
   s.touches ??= [];
   s.exclusive ??= false;
@@ -196,6 +208,7 @@ export function applyDefaults(story) {
   if (!PRIORITIES.includes(s.priority)) {
     throw new CliError(`priority must be one of ${PRIORITIES.join(", ")}, got '${s.priority}'`);
   }
+  assertComplexity(s.complexity);
   return s;
 }
 
@@ -243,6 +256,11 @@ export function loadStories(root, config, { includeArchive = false } = {}) {
       const file = join(dir, name);
       const story = { ...parseStory(readFileSync(file, "utf8"), file), file };
       if (!ID_PATTERN.test(story.id)) continue; // malformed id → skip; doctor surfaces it
+      // read-time default/repair — omitted on disk when routine (serializeStory);
+      // an out-of-range value (hand-edited or malicious) is coerced here too, since
+      // this value drives stories:work's planner model/effort pick. `story doctor`
+      // reports+repairs the on-disk file separately (see adoptStory).
+      if (!COMPLEXITIES.includes(story.complexity)) story.complexity = "routine";
       stories.push(story);
     }
   }
@@ -334,6 +352,21 @@ export function setSection(body, heading, content) {
   while (end < lines.length && !lines[end].startsWith("## ")) end++;
   lines.splice(idx, end - idx, ...block);
   return lines.join("\n").replace(/\n*$/, "\n");
+}
+
+/**
+ * READ the content of the `heading` section (or null when the heading is
+ * absent), trimmed. Symmetric with setSection's parsing: same exact-match
+ * heading line, same "next '## ' heading or end of body" boundary.
+ * `heading` is the full "## Implementation Plan" form.
+ */
+export function getSection(body, heading) {
+  const lines = String(body ?? "").split("\n");
+  const idx = lines.findIndex((l) => l.trim() === heading);
+  if (idx === -1) return null;
+  let end = idx + 1;
+  while (end < lines.length && !lines[end].startsWith("## ")) end++;
+  return lines.slice(idx + 1, end).join("\n").trim();
 }
 
 // ---------------------------------------------------------------- readiness

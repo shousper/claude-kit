@@ -27,7 +27,7 @@ describe("story done — self mode", () => {
   test("gates green → evidence written, touches reconciled, merged to main, worktree gone, status done", async () => {
     const repo = await makeRepo(); // DEFAULT_CONFIG: merge self, gate test = `true`
     const id = await claimedStory(repo, ["--touches", "declared/**"]);
-    const r = await runStory(repo.root, ["done", id, "--json"]);
+    const r = await runStory(repo.root, ["done", id, "--json", "--allow-unplanned"]);
     expect(r.code).toBe(0);
     const s = loadStories(repo.root, CONFIG).find((x) => x.id === id)!;
     expect(s.status).toBe("done");
@@ -47,7 +47,7 @@ describe("story done — self mode", () => {
     // integrateSelf tears the worktree down BEFORE the final status write; the
     // command was started from inside it, so every post-teardown step must be
     // independent of cwd or the story strands in-progress after a real merge.
-    const r = await runStory(wt, ["done", id, "--json"]);
+    const r = await runStory(wt, ["done", id, "--json", "--allow-unplanned"]);
     expect(r.code).toBe(0);
     const s = loadStories(repo.root, CONFIG).find((x) => x.id === id)!;
     expect(s.status).toBe("done");
@@ -63,7 +63,7 @@ describe("story done — self mode", () => {
     // Pre-existing pile-up: an unrelated board write nobody ever committed.
     const pending = await runStory(repo.root, ["create", "--title", "unrelated pending story", "--json"]);
     expect(pending.code).toBe(0);
-    expect((await runStory(repo.root, ["done", id])).code).toBe(0);
+    expect((await runStory(repo.root, ["done", id, "--allow-unplanned"])).code).toBe(0);
     expect(git(repo.root, "status", "--porcelain", "--", "stories").trim()).toBe("");
     expect(git(repo.root, "log", "-1", "--format=%s").trim()).toBe(`story ${id}: board update`);
     const tracked = git(repo.root, "ls-files", "stories");
@@ -77,7 +77,7 @@ describe("story done — self mode", () => {
       gates: { test: { kind: "command", run: "false" } },
     });
     const id = await claimedStory(repo);
-    const r = await runStory(repo.root, ["done", id]);
+    const r = await runStory(repo.root, ["done", id, "--allow-unplanned"]);
     expect(r.code).toBe(1);
     expect(JSON.parse(r.stderr).error).toMatch(/gate.*test.*failed|failed.*test/i);
     expect(loadStories(repo.root, CONFIG).find((x) => x.id === id)!.status).toBe("in-progress");
@@ -88,11 +88,11 @@ describe("story done — self mode", () => {
   test("review gate without a pass verdict blocks; recording one unblocks; evidence includes the verdict", async () => {
     const repo = await makeRepo();
     const id = await claimedStory(repo, ["--type", "ui"]); // defaults: [test, visual]
-    const blocked = await runStory(repo.root, ["done", id]);
+    const blocked = await runStory(repo.root, ["done", id, "--allow-unplanned"]);
     expect(blocked.code).toBe(1);
     expect(JSON.parse(blocked.stderr).error).toContain(`story record ${id} --gate visual`);
     expect((await runStory(repo.root, ["record", id, "--gate", "visual", "--verdict", "pass", "--evidence", "shot.png"])).code).toBe(0);
-    expect((await runStory(repo.root, ["done", id])).code).toBe(0);
+    expect((await runStory(repo.root, ["done", id, "--allow-unplanned"])).code).toBe(0);
     const dir = join(repo.root, ".claude/story-evidence", id);
     const evidenceFile = readdirSync(dir).filter((f) => !f.startsWith("verdict-")).sort().at(-1)!;
     const payload = JSON.parse(await Bun.file(join(dir, evidenceFile)).text());
@@ -112,7 +112,7 @@ describe("story done — self mode", () => {
     writeFileSync(join(repo.root, "impl.ts"), "conflicting main version\n");
     git(repo.root, "add", "impl.ts");
     git(repo.root, "commit", "-m", "conflicting main change");
-    const r = await runStory(repo.root, ["done", id]);
+    const r = await runStory(repo.root, ["done", id, "--allow-unplanned"]);
     expect(r.code).toBe(1);
     expect(JSON.parse(r.stderr).error).toMatch(/conflict/);
     const s = loadStories(repo.root, CONFIG).find((x) => x.id === id)!;
@@ -138,7 +138,7 @@ describe("story done — local mode", () => {
   test("gates green → in-review, claim cleared, worktree left for human review", async () => {
     const repo = await makeRepo({ ...DEFAULT_CONFIG, merge: "local" });
     const id = await claimedStory(repo);
-    const r = await runStory(repo.root, ["done", id, "--json"]);
+    const r = await runStory(repo.root, ["done", id, "--json", "--allow-unplanned"]);
     expect(r.code).toBe(0);
     const s = loadStories(repo.root, CONFIG).find((x) => x.id === id)!;
     expect(s.status).toBe("in-review");
@@ -152,7 +152,7 @@ describe("story done — local mode", () => {
   test("local done never commits on base — integration belongs to the human", async () => {
     const repo = await makeRepo({ ...DEFAULT_CONFIG, merge: "local" });
     const id = await claimedStory(repo);
-    expect((await runStory(repo.root, ["done", id])).code).toBe(0);
+    expect((await runStory(repo.root, ["done", id, "--allow-unplanned"])).code).toBe(0);
     expect(git(repo.root, "log", "-1", "--format=%s").trim()).toBe("init");
     await repo.cleanup();
   });
@@ -200,7 +200,7 @@ describe("story done — committed-work guards", () => {
     expect(refused.stderr).toContain("--allow-empty");
     expect(loadStories(repo.root, CONFIG).find((x) => x.id === id)!.status).toBe("in-progress");
 
-    const allowed = await runStory(repo.root, ["done", id, "--allow-empty"]);
+    const allowed = await runStory(repo.root, ["done", id, "--allow-empty", "--allow-unplanned"]);
     expect(allowed.code).toBe(0);
     expect(loadStories(repo.root, CONFIG).find((x) => x.id === id)!.status).toBe("done");
     await repo.cleanup();
@@ -219,6 +219,44 @@ describe("story done — committed-work guards", () => {
     expect(r.code).not.toBe(0);
     expect(r.stderr).toMatch(/CLI-managed/);
     expect(r.stderr).toMatch(/checkout --/);
+    await repo.cleanup();
+  });
+});
+
+describe("story done — plan guard", () => {
+  test("refuses done when no implementation plan is on record", async () => {
+    const repo = await makeRepo();
+    const id = await claimedStory(repo);
+    const r = await runStory(repo.root, ["done", id, "--allow-empty"]);
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toMatch(/no implementation plan/i);
+    expect(r.stderr).toContain("--plan-file");
+    expect(r.stderr).toContain("--allow-unplanned");
+    expect(loadStories(repo.root, CONFIG).find((x) => x.id === id)!.status).toBe("in-progress");
+    await repo.cleanup();
+  });
+
+  test("a recorded plan (>=10 words) clears the guard", async () => {
+    const repo = await makeRepo();
+    const id = await claimedStory(repo);
+    const planFile = join(repo.root, "plan.txt");
+    writeFileSync(
+      planFile,
+      "1. read the existing helper\n2. add the new function beside it\n3. write tests\n4. wire it into the command\n",
+    );
+    expect((await runStory(repo.root, ["update", id, "--plan-file", planFile])).code).toBe(0);
+    const r = await runStory(repo.root, ["done", id, "--allow-empty"]);
+    expect(r.code).toBe(0);
+    expect(loadStories(repo.root, CONFIG).find((x) => x.id === id)!.status).toBe("done");
+    await repo.cleanup();
+  });
+
+  test("--allow-unplanned closes a story with no plan on record", async () => {
+    const repo = await makeRepo();
+    const id = await claimedStory(repo);
+    const r = await runStory(repo.root, ["done", id, "--allow-empty", "--allow-unplanned"]);
+    expect(r.code).toBe(0);
+    expect(loadStories(repo.root, CONFIG).find((x) => x.id === id)!.status).toBe("done");
     await repo.cleanup();
   });
 });

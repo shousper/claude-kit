@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendToSection, setSection } from "../../plugins/stories/lib/cli.mjs";
 import { loadStories } from "../../plugins/stories/lib/board.mjs";
@@ -119,6 +119,22 @@ describe("story update", () => {
     s = loadStories(repo.root, CONFIG)[0];
     expect(s.body).toContain("## Implementation Plan\n\n1. revised\n\n## Implementation Notes");
     expect(s.body).not.toContain("red test");
+    await repo.cleanup();
+  });
+});
+
+describe("story update — complexity", () => {
+  test("--complexity frontier sets it, then --complexity routine removes the line while show still reports routine", async () => {
+    const repo = await makeRepo();
+    await writeStoryFile(repo.root, "st-0001-a.md", storyText({ id: "st-0001", title: "a", status: "todo" }));
+    expect((await runStory(repo.root, ["update", "st-0001", "--complexity", "frontier"])).code).toBe(0);
+    let show = await runStory(repo.root, ["show", "st-0001", "--json"]);
+    expect((show.json() as { complexity: string }).complexity).toBe("frontier");
+    expect((await runStory(repo.root, ["update", "st-0001", "--complexity", "routine"])).code).toBe(0);
+    show = await runStory(repo.root, ["show", "st-0001", "--json"]);
+    expect((show.json() as { complexity: string }).complexity).toBe("routine");
+    const s = loadStories(repo.root, CONFIG)[0];
+    expect(readFileSync(s.file, "utf8")).not.toContain("complexity:");
     await repo.cleanup();
   });
 });

@@ -31,9 +31,27 @@ One story per iteration, in this order:
 
 `story claim <id>` — verifies readiness under lock, writes your lease, creates `.worktrees/st-<id>` on branch `story/st-<id>`. Lost the race (claim error) → re-run `story ready` and take the next. Never work on a story you have not claimed.
 
-### 3. Plan on the record
+### 3. Plan via a dispatched planner — never inline
 
-`story show <id>` — read the description and acceptance criteria. Write a short implementation plan into the story before coding: `story update <id> --plan-file <scratch-file>`. Future workers and reviewers get context from the story file, not from your session.
+Every claimed story gets an execution-time plan from a dispatched agent — even when the story already carries one (prerequisites may have merged since it was written; the planner validates and refreshes against the code as it is NOW). Never plan inline in the worker session, and never skip this step: `story done` refuses a story without a plan on record.
+
+Model by story `complexity` (from `story show --json`; absent = routine):
+
+| complexity | planner model | effort |
+|---|---|---|
+| routine | sonnet | high |
+| hard | opus | xhigh |
+| frontier | fable | xhigh |
+
+`frontier` is your human partner's explicit opt-in to Fable, made at board-approval time — never self-assign it.
+
+Dispatch ONE planner agent (Agent tool, model per the table) with: the full story body (description, ACs, existing plan — paste it, the agent must not re-read the board), the worktree path, and this output contract:
+
+> Explore the code in the worktree first; verify every file pointer in the story against reality. Return exactly two blocks:
+> `<plan>` — the implementation plan as markdown: numbered steps, exact file paths, what each test proves. This becomes the story's permanent plan of record.
+> `<batches>` — a JSON array of batches (arrays of task objects `{"id": "...", "title": "...", "prompt": "..."}`): bite-sized TDD tasks, each prompt fully self-contained (an implementer with zero context must be able to execute it without reading the story). One batch unless tasks genuinely must land sequentially.
+
+Then: save `<plan>` to a scratch file → `story update <id> --plan-file <file>`; hold `<batches>` for step 4. A planner that reports the story is unimplementable as specified (contradicts the code, missing prerequisite) → park the story with its question instead of proceeding.
 
 ### 4. Implement via kit:build-flow — inside the worktree
 
@@ -43,7 +61,7 @@ All implementation happens in `.worktrees/st-<id>`. Three hard rules, each from 
 - **Block until build-flow completes** (TaskOutput with block=true) before gating, committing, or ending your turn. Ending the turn with a workflow still running lets the Stop hook tick the loop and re-prompt you with the NEXT story while this one is half-built.
 - build-flow's worktree requirement is already satisfied by the story worktree; do NOT create another.
 
-Invoke kit:build-flow with the story as the plan: the story body (description, ACs, your implementation plan) is the task prompt — usually a single batch with one task.
+Invoke kit:build-flow with the planner's `<batches>` as `args.batches` — never the raw story as a single fat task. The story body stays the spec; the planner output is the plan.
 
 **Committing — MANDATORY before closing:** `story done` merges the story BRANCH, not the working tree. build-flow leaves its work uncommitted by design, so commit it to the story branch first (message `st-<id>: <what changed>`) — the CLI refuses a dirty worktree or a zero-commit branch (use `--allow-empty` only for a genuinely codeless story). Stage code only, never `stories/**`: board files are CLI-managed — restore them with `git checkout -- stories` instead of committing them. The goal loop is your human partner's standing consent to commit on `story/st-<id>` branches — never to main; integration belongs to the CLI.
 
@@ -136,6 +154,8 @@ Global iterations and per-story fix rounds come from config (defaults 10 / 3). T
 - Merge to main yourself — integration is the CLI's.
 - Continue past a stopped loop, restart it, or edit budgets.
 - Swallow parked questions from the final summary.
+- Skip the planner dispatch, plan inline in the worker session, or pass the raw story to build-flow as one fat task.
+- Self-assign `frontier` complexity — that escalation belongs to your human partner at approval time.
 
 ## Integration
 

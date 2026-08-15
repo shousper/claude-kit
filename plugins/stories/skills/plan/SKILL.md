@@ -31,8 +31,11 @@ Read the spec or design in full. Unresolved product decisions go back to your hu
 | touches | Coarse globs of what the story will modify, e.g. `src/gates/**`. A scheduler hint — conservative, directory-level |
 | exclusive | `true` for sweeping refactors that own the whole repo; use it instead of a giant touches list |
 | gates | Omit to accept the type defaults from config; override per story (UI story → add `visual`). Only names defined in `.claude/story-workflow.json` |
+| complexity | `routine` (default — omit it) \| `hard` for cross-cutting, ambiguous, or multi-subsystem stories \| `frontier` reserved for the rare story your human partner explicitly wants frontier-model planning on. Proposed here, confirmed by the human at the approval gate |
 
 Body sections:
+
+Do NOT write an Implementation Plan section — planning happens at execution time (stories:work dispatches a planner against the current code); your job is Description pointers and verifiable ACs.
 
 - **Description** — enough context to implement without the spec at hand: the why, pointers to relevant files, interfaces to honor.
 - **Acceptance Criteria** — checkboxes, each mechanically verifiable by a command, a test, or an inspectable artifact. Never "works correctly", "is clean", "handles errors gracefully".
@@ -42,7 +45,7 @@ Body sections:
 
 ### 4. HARD GATE: human approval before filing
 
-Present the full set for review — a table (placeholder ref, title, type, priority, deps, touches, gates) plus each story body. Iterate until your human partner explicitly approves. **No `story create` before approval.** An unapproved board pollutes provenance and wastes every worker that claims from it.
+Present the full set for review — a table (placeholder ref, title, type, priority, deps, touches, gates, complexity) plus each story body. Iterate until your human partner explicitly approves. **No `story create` before approval.** An unapproved board pollutes provenance and wastes every worker that claims from it.
 
 ### 5. File via the CLI
 
@@ -54,7 +57,7 @@ Never write story files by hand (a hook denies it anyway).
 ```bash
 story create --title "Add ×N multiplier gates" --type feature \
   --epic st-9c01 --depends-on st-1b3e --touches 'src/gates/**' \
-  --gates test,e2e --body-file "$SCRATCH/story-body.md"
+  --gates test,e2e --complexity hard --body-file "$SCRATCH/story-body.md"
 ```
 
 Write each body to a scratch file for `--body-file`.
