@@ -7,7 +7,12 @@
 # more than 8 consecutive blocked stops without progress, document
 # CLAUDE_CODE_STOP_HOOK_BLOCK_CAP — do not remove the budgets.
 set -euo pipefail
-[ -f .claude/story-workflow.json ] || exit 0
+# Resolve the MAIN checkout root — hooks fire with cwd anywhere in the repo,
+# including inside story worktrees where the marker is invisible to $PWD.
+common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || exit 0
+root="$(dirname "$common")"
+[ -f "$root/.claude/story-workflow.json" ] || exit 0
+cd "$root"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 STORY="$(cd "${SCRIPT_DIR}/.." && pwd)/bin/story"

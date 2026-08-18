@@ -449,6 +449,12 @@ async function cmdDone(ctx) {
   const config = loadConfig(root);
   const base = config.baseBranch ?? "main";
   const story = board.getStory(board.loadStories(root, config), id);
+  if (story.status === "done") {
+    // Idempotent close: a retry after a crash-between-merge-and-write (or a
+    // duplicated done) must succeed, not die on `illegal transition done → done`.
+    output(ctx, { id, status: "done", already: true }, [`${id} already done — nothing to do`]);
+    return;
+  }
   if (story.status !== "in-progress") {
     throw new CliError(`story ${id} is '${story.status}', expected in-progress`);
   }
@@ -554,7 +560,15 @@ async function cmdDone(ctx) {
   // spawn dies on the deleted directory — stranding a merged story in-progress.
   if (mode === "self") {
     const { conflict } = await worktrees.integrateSelf(root, story, { exec: ctx.exec, base });
-    if (conflict) {
+    if (conflict && worktrees.safeToDiscardOnConflict(root, id, { exec: ctx.exec, base })) {
+      // A prior integrateSelf run's merge already landed on base (crash
+      // between merge and board write) and this "conflict" is just the stale
+      // branch re-merging over content that's already there — verified by
+      // actual content (branch gone, or its tip is subsumed by base), not
+      // merely a commit-message match. Tear down the stale worktree/branch
+      // and fall through to close the story truthfully.
+      worktrees.teardown(root, id, { exec: ctx.exec });
+    } else if (conflict) {
       await board.mutateStory(root, config, id, (s) => {
         s.body = appendToSection(
           s.body,
@@ -699,7 +713,11 @@ async function cmdShow(ctx) {
   const root = findRoot(ctx.cwd, ctx.exec);
   const config = loadConfig(root);
   const s = board.getStory(board.loadStories(root, config, { includeArchive: true }), id);
-  output(ctx, { ...publicView(s), body: s.body }, [readFileSync(s.file, "utf8")]);
+  const stateLine = ["status: " + s.status]
+    .concat(s.claim ? [`claim: ${s.claim.session} (lease ${s.claim.lease})`] : [])
+    .concat(s.feedback ? ["feedback: true"] : [])
+    .concat(s.pr?.number ? [`pr: #${s.pr.number}`] : []);
+  output(ctx, { ...publicView(s), body: s.body }, [...stateLine, "", readFileSync(s.file, "utf8")]);
 }
 
 // ---------------------------------------------------------------- loop (Section C)
@@ -710,13 +728,22 @@ async function cmdShow(ctx) {
 // a weaker local parser).
 async function cmdLoop(ctx) {
   const root = findRoot(ctx.cwd, ctx.exec); // MAIN checkout root, even from inside a story worktree
-  const result = await runLoopCommand({ positionals: ctx.positionals, flags: ctx.flags }, { root });
+  const flags = { ...ctx.flags };
+  if (flags.session === undefined && ctx.env.CLAUDE_SESSION_ID) flags.session = ctx.env.CLAUDE_SESSION_ID;
+  const result = await runLoopCommand({ positionals: ctx.positionals, flags }, { root });
   output(ctx, result, [loopHumanLine(ctx.positionals[0], result)]);
 }
 
 function loopHumanLine(sub, result) {
   if (sub === "start") return `story loop started - goal: ${result.goal} (0/${result.max_iterations})`;
   if (sub === "status") {
+    if (Array.isArray(result.loops)) {
+      return result.loops.length > 0
+        ? result.loops
+            .map((l) => `${l.session_id}: iteration ${l.iteration}/${l.max_iterations} - goal: ${l.goal}`)
+            .join("\n")
+        : "no active loops";
+    }
     return result.active
       ? `loop active - iteration ${result.iteration}/${result.max_iterations} - goal: ${result.goal}`
       : "no active loop";

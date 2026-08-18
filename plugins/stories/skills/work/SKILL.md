@@ -1,6 +1,6 @@
 ---
 name: work
-description: Runs the story worker loop in a story-workflow project — claim ready stories, implement each in its own worktree, close through verification gates, repeat until the goal is met or budgets run out. Use when asked to "work the board", "complete all stories", "work on epic st-XXXX", "pick up the next story", "start a worker", or to resume or continue a story run — and when a Stop-hook re-prompt names the next story. DO NOT TRIGGER without .claude/story-workflow.json (use stories:setup first), for decomposing a spec into stories (stories:plan), or to stop a run (stories:cancel).
+description: Runs the story worker loop in a story-workflow project — claim ready stories, implement each in its own worktree, close through verification gates, repeat until the goal is met or budgets run out. Use when asked to "work the board", "complete all stories", "work on epic st-XXXX", "pick up the next story", "start a worker", or to resume or continue a story run — and when a Stop-hook re-prompt names the next story in a session that started the loop. DO NOT TRIGGER without .claude/story-workflow.json (use stories:setup first), for decomposing a spec into stories (stories:plan), or to stop a run (stories:cancel).
 ---
 
 # Story Worker
@@ -11,12 +11,12 @@ You are one worker in a possibly-parallel pool. The `story` CLI arbitrates every
 
 ## HARD GATE: the CLI is the only writer
 
-Never Edit/Write files under the configured `storiesDir` (default `stories/`), `.claude/story-loop.local.md`, `.claude/story-learnings.local.md`, or `.claude/story-evidence/`. Every board mutation is a `story` command. A PreToolUse hook denies direct writes — treat a denial as a redirect and run the CLI command it names. Do not route around it with Bash (`sed -i`, `echo >>`, heredocs): unlocked writes corrupt the board for every parallel worker.
+Never Edit/Write files under the configured `storiesDir` (default `stories/`), `.claude/story-loop.*.local.md`, `.claude/story-state.local.json`, `.claude/story-learnings.local.md`, or `.claude/story-evidence/`. Every board mutation is a `story` command. A PreToolUse hook denies direct writes — treat a denial as a redirect and run the CLI command it names. Do not route around it with Bash (`sed -i`, `echo >>`, heredocs): unlocked writes corrupt the board for every parallel worker.
 
 ## Starting a run
 
 1. Parse the goal scope from the ask: whole board ("complete all stories"), an epic (`epic:st-9c01`), an explicit list of ids, or a single story.
-2. Multi-story goal → `story loop start --goal "<scope>"`. The Stop hook now re-prompts you with the next story after each iteration — never "keep going" on your own initiative, and never touch the loop state file.
+2. Multi-story goal → `story loop start --goal "<scope>"`. The CLI binds the loop to YOUR session (via CLAUDE_SESSION_ID) — only this session receives its re-prompts, and other sessions' loops never address you. The Stop hook now re-prompts you with the next story after each iteration — never "keep going" on your own initiative, and never touch the loop state files.
 3. Single-story ask → skip the loop; run one iteration of the procedure below.
 
 ## Iteration procedure

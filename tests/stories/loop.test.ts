@@ -4,7 +4,7 @@ import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
-  readLoopState, writeLoopState, loopStatePath,
+  readLoopState, writeLoopState, loopStatePath, legacyLoopPath, listLoopStates,
   appendLearning, readLearnings, learningsPath,
   extractSection, scopeStories, buildBlockReason, tick, runLoopCommand as runLoopCommandParsed,
 } from "../../plugins/stories/lib/loop.mjs";
@@ -44,27 +44,32 @@ const baseState = () => ({
 
 describe("loop state file", () => {
   it("readLoopState returns null when the file is absent", async () => {
-    expect(readLoopState(await makeRoot())).toBeNull();
+    expect(readLoopState(await makeRoot(), "sess-1")).toBeNull();
   });
 
   it("round-trips state through frontmatter", async () => {
     const root = await makeRoot();
     writeLoopState(root, baseState());
-    expect(readLoopState(root)).toEqual(baseState());
+    expect(readLoopState(root, "sess-1")).toEqual(baseState());
   });
 
   it("creates .claude/ when missing and leaves no temp files behind", async () => {
     const root = await mkdtemp(join(tmpdir(), "story-loop-bare-")).then(realpath);
     writeLoopState(root, baseState());
     writeLoopState(root, { ...baseState(), iteration: 3 });
-    expect(readLoopState(root)!.iteration).toBe(3);
-    expect(await readdir(join(root, ".claude"))).toEqual(["story-loop.local.md"]);
+    expect(readLoopState(root, "sess-1")!.iteration).toBe(3);
+    expect(await readdir(join(root, ".claude"))).toEqual(["story-loop.sess-1.local.md"]);
   });
 
   it("throws on a corrupt state file", async () => {
     const root = await makeRoot();
-    await writeFile(loopStatePath(root), "definitely not frontmatter\n");
-    expect(() => readLoopState(root)).toThrow(/corrupt/);
+    await writeFile(loopStatePath(root, "sess-1"), "definitely not frontmatter\n");
+    expect(() => readLoopState(root, "sess-1")).toThrow(/corrupt/);
+  });
+
+  it("sanitizes unsafe characters in the session id", async () => {
+    const root = await makeRoot();
+    expect(loopStatePath(root, "weird/id:1")).toBe(join(root, ".claude/story-loop.weird_id_1.local.md"));
   });
 });
 
@@ -204,15 +209,16 @@ describe("tick: session ownership + terminal decisions", () => {
     writeLoopState(root, baseState());
     const r = await runTick({ root, sessionId: "sess-OTHER" });
     expect(r.decision).toBe("allow");
-    expect(readLoopState(root)!.iteration).toBe(2); // untouched
+    expect(readLoopState(root, "sess-1")!.iteration).toBe(2); // untouched
   });
 
-  it("binds an unowned loop to the first session that ticks it", async () => {
+  it("never adopts an unowned loop — ownership is assigned at start only", async () => {
     const root = await makeRoot();
     writeLoopState(root, { ...baseState(), session_id: "" });
     const r = await runTick({ root, sessionId: "sess-9" });
-    expect(r.decision).toBe("block");
-    expect(readLoopState(root)!.session_id).toBe("sess-9");
+    expect(r.decision).toBe("allow");
+    expect(readLoopState(root, "")!.session_id).toBe(""); // untouched — not adopted
+    expect(readLoopState(root, "")!.iteration).toBe(2); // untouched — did not drive
   });
 
   it("allows without driving when an owned loop is ticked with an empty sessionId (foreign)", async () => {
@@ -220,8 +226,8 @@ describe("tick: session ownership + terminal decisions", () => {
     writeLoopState(root, baseState()); // session_id: "sess-1"
     const r = await runTick({ root, sessionId: "" });
     expect(r.decision).toBe("allow");
-    expect(readLoopState(root)!.iteration).toBe(2); // untouched — did not drive
-    expect(readLoopState(root)!.session_id).toBe("sess-1"); // ownership unchanged
+    expect(readLoopState(root, "sess-1")!.iteration).toBe(2); // untouched — did not drive
+    expect(readLoopState(root, "sess-1")!.session_id).toBe("sess-1"); // ownership unchanged
   });
 
   it("still drives when the ticking session matches the owning session", async () => {
@@ -229,16 +235,26 @@ describe("tick: session ownership + terminal decisions", () => {
     writeLoopState(root, baseState()); // session_id: "sess-1"
     const r = await runTick({ root, sessionId: "sess-1" });
     expect(r.decision).toBe("block");
-    expect(readLoopState(root)!.iteration).toBe(3); // drove
+    expect(readLoopState(root, "sess-1")!.iteration).toBe(3); // drove
+  });
+
+  it("points the block reason at the stories:work procedure, not the stale worktree instruction", async () => {
+    const root = await makeRoot();
+    writeLoopState(root, baseState()); // session_id: "sess-1"
+    const r = await runTick({ root, sessionId: "sess-1" });
+    expect(r.decision).toBe("block");
+    expect(r.reason).toContain("stories:work");
+    expect(r.reason).toContain("story claim st-");
+    expect(r.reason).not.toMatch(/implement inside its worktree \(kit:build-flow\)/);
   });
 
   it("removes a corrupt state file and allows with a restart summary", async () => {
     const root = await makeRoot();
-    await writeFile(loopStatePath(root), "garbage\n");
+    await writeFile(loopStatePath(root, "sess-1"), "garbage\n");
     const r = await runTick({ root });
     expect(r.decision).toBe("allow");
     expect(r.summary).toMatch(/corrupt/i);
-    expect(existsSync(loopStatePath(root))).toBe(false);
+    expect(existsSync(loopStatePath(root, "sess-1"))).toBe(false);
   });
 
   it("allows-stop with a clear reason when the config is corrupt (never crashes the hook, never drives on {})", async () => {
@@ -253,13 +269,27 @@ describe("tick: session ownership + terminal decisions", () => {
     expect(r.summary).toMatch(/story-workflow\.json/);
   });
 
+  it("allows-stop with a clear reason when the state store is corrupt (not a silent no-op)", async () => {
+    const root = await makeRoot();
+    writeLoopState(root, baseState()); // an active loop exists…
+    await writeFile(join(root, ".claude/story-state.local.json"), "{ not json");
+    // …but a corrupt store — the single dependency of loadStories/saveStory
+    // for every story now — must NOT crash the tick and must NOT silently
+    // no-op via the generic hook-mode catch-all; it allows the stop with the
+    // same explanatory-reason treatment loadConfig corruption gets.
+    const r = await tick("sess-1", { root });
+    expect(r.decision).toBe("allow");
+    expect(r.summary).toMatch(/cannot run/i);
+    expect(r.summary).toMatch(/story-state\.local\.json/);
+  });
+
   it("allows with a board summary when the iteration budget is exhausted", async () => {
     const root = await makeRoot();
     writeLoopState(root, { ...baseState(), iteration: 10 });
     const r = await runTick({ root });
     expect(r.decision).toBe("allow");
     expect(r.summary).toMatch(/budget exhausted/i);
-    expect(existsSync(loopStatePath(root))).toBe(false);
+    expect(existsSync(loopStatePath(root, "sess-1"))).toBe(false);
   });
 
   it("allows with parked questions when the board is drained (done/parked only)", async () => {
@@ -274,7 +304,7 @@ describe("tick: session ownership + terminal decisions", () => {
     expect(r.summary).toContain("st-b10c");
     expect(r.summary).toContain("Should gates run twice?"); // the Questions section
     expect(r.summary).toMatch(/1\/2 in scope done/);
-    expect(existsSync(loopStatePath(root))).toBe(false);
+    expect(existsSync(loopStatePath(root, "sess-1"))).toBe(false);
   });
 
   it("allows-and-waits when nothing is claimable but work is still open", async () => {
@@ -285,7 +315,7 @@ describe("tick: session ownership + terminal decisions", () => {
     expect(r.decision).toBe("allow");
     expect(r.summary).toMatch(/idle|claimable/i);
     expect(r.summary).toContain("st-a1b2");
-    expect(existsSync(loopStatePath(root))).toBe(true); // loop stays armed
+    expect(existsSync(loopStatePath(root, "sess-1"))).toBe(true); // loop stays armed
   });
 
   it("blocks with the next ready story, incrementing iteration and attempts atomically", async () => {
@@ -297,7 +327,7 @@ describe("tick: session ownership + terminal decisions", () => {
     expect(r.reason).toContain("- [ ] bun test passes");
     expect(r.reason).toContain("prefer bun test");
     expect(r.systemMessage).toBe("story st-a1b2 · iteration 3/10");
-    const after = readLoopState(root)!;
+    const after = readLoopState(root, "sess-1")!;
     expect(after.iteration).toBe(3);
     expect(after.attempts).toEqual({ "st-a1b2": 1 });
   });
@@ -336,7 +366,7 @@ describe("tick: doctor + budgets + goal scope", () => {
     const r = await runTick({ root, stories });
     expect(r.decision).toBe("block");
     expect(r.reason).toContain("st-c3d4");
-    expect(readLoopState(root)!.attempts).toEqual({ "st-a1b2": 3, "st-c3d4": 1 });
+    expect(readLoopState(root, "sess-1")!.attempts).toEqual({ "st-a1b2": 3, "st-c3d4": 1 });
   });
 
   it("allows with a summary when every ready story is over its attempt budget", async () => {
@@ -345,7 +375,7 @@ describe("tick: doctor + budgets + goal scope", () => {
     const r = await runTick({ root });
     expect(r.decision).toBe("allow");
     expect(r.summary).toMatch(/attempt budget/i);
-    expect(existsSync(loopStatePath(root))).toBe(false);
+    expect(existsSync(loopStatePath(root, "sess-1"))).toBe(false);
   });
 
   it("blocks with repair instructions on hard board corruption (and still burns budget)", async () => {
@@ -363,7 +393,7 @@ describe("tick: doctor + budgets + goal scope", () => {
     expect(r.reason).toContain("st-dead depends on missing st-beef");
     expect(r.reason).toContain("story doctor --fix");
     expect(r.systemMessage).toBe("story doctor · iteration 3/10");
-    expect(readLoopState(root)!.iteration).toBe(3);
+    expect(readLoopState(root, "sess-1")!.iteration).toBe(3);
   });
 
   it("falls back to the issue kind when a hard issue carries no detail", async () => {
@@ -427,37 +457,93 @@ describe("tick: doctor + budgets + goal scope", () => {
 describe("loop CLI subcommands", () => {
   it("start writes state with the config-default budget; a second start fails", async () => {
     const root = await makeRoot({ budgets: { maxIterations: 7, maxFixRoundsPerStory: 3 } });
-    const r = await runLoopCommand(["start", "--goal", "epic:st-9c01"], { root });
+    const r = await runLoopCommand(["start", "--goal", "epic:st-9c01", "--session", "test-session"], { root });
     expect(r).toMatchObject({ started: true, goal: "epic:st-9c01", iteration: 0, max_iterations: 7 });
-    expect(readLoopState(root)!.goal).toBe("epic:st-9c01");
-    await expect(runLoopCommand(["start"], { root })).rejects.toThrow(/already active/);
+    expect(readLoopState(root, "test-session")!.goal).toBe("epic:st-9c01");
+    await expect(runLoopCommand(["start", "--session", "test-session"], { root })).rejects.toThrow(/already active/);
   });
 
   it("start accepts --key=value syntax (shared cli.mjs parser, not the old weaker one)", async () => {
     const root = await makeRoot({ budgets: { maxIterations: 7, maxFixRoundsPerStory: 3 } });
-    const r = await runLoopCommand(["start", "--goal=epic:st-9c01", "--max-iterations=3"], { root });
+    const r = await runLoopCommand(["start", "--goal=epic:st-9c01", "--max-iterations=3", "--session=test-session"], { root });
     expect(r).toMatchObject({ started: true, goal: "epic:st-9c01", max_iterations: 3 });
   });
 
   it("start --max-iterations overrides config", async () => {
     const root = await makeRoot();
-    const r = await runLoopCommand(["start", "--max-iterations", "3"], { root });
+    const r = await runLoopCommand(["start", "--max-iterations", "3", "--session", "test-session"], { root });
     expect(r.max_iterations).toBe(3);
   });
 
-  it("status reports active and inactive loops", async () => {
+  it("start without a session id is refused", async () => {
     const root = await makeRoot();
-    expect(await runLoopCommand(["status"], { root })).toEqual({ active: false });
-    writeLoopState(root, baseState());
-    expect(await runLoopCommand(["status"], { root })).toMatchObject({ active: true, iteration: 2 });
+    await expect(runLoopCommand(["start"], { root })).rejects.toThrow(/requires a session/);
   });
 
-  it("stop deletes the state file and is idempotent", async () => {
+  it("tick from a non-owner session allows without touching the owner's loop", async () => {
+    const root = await makeRoot();
+    await runLoopCommand(["start", "--session", "owner-a"], { root });
+    const r = await tick("other-session", { root });
+    expect(r.decision).toBe("allow");
+    expect(readLoopState(root, "owner-a")!.session_id).toBe("owner-a"); // untouched
+  });
+
+  it("status with a session reports that session's loop or inactive", async () => {
+    const root = await makeRoot();
+    expect(await runLoopCommand(["status", "--session", "sess-1"], { root })).toEqual({ active: false });
+    writeLoopState(root, baseState());
+    expect(await runLoopCommand(["status", "--session", "sess-1"], { root })).toMatchObject({ active: true, iteration: 2 });
+  });
+
+  it("status with no session lists every active loop", async () => {
+    const root = await makeRoot();
+    expect(await runLoopCommand(["status"], { root })).toEqual({ active: false, loops: [] });
+    writeLoopState(root, baseState());
+    writeLoopState(root, { ...baseState(), session_id: "sess-2", iteration: 5 });
+    const r = await runLoopCommand(["status"], { root });
+    expect(r.active).toBe(true);
+    expect(r.loops.map((l: any) => l.session_id).sort()).toEqual(["sess-1", "sess-2"]);
+  });
+
+  it("two sessions run independent loops", async () => {
+    const root = await makeRoot();
+    const r1 = await runLoopCommand(["start", "--session", "w1"], { root });
+    const r2 = await runLoopCommand(["start", "--session", "w2"], { root }); // must NOT error
+    expect(r1.started).toBe(true);
+    expect(r2.started).toBe(true);
+    expect(readLoopState(root, "w1")!.session_id).toBe("w1");
+    expect(readLoopState(root, "w2")!.session_id).toBe("w2");
+  });
+
+  it("stop with a session deletes only that session's state file and is idempotent", async () => {
     const root = await makeRoot();
     writeLoopState(root, baseState());
-    expect(await runLoopCommand(["stop"], { root })).toEqual({ stopped: true });
-    expect(existsSync(loopStatePath(root))).toBe(false);
-    expect(await runLoopCommand(["stop"], { root })).toEqual({ stopped: false });
+    expect(await runLoopCommand(["stop", "--session", "sess-1"], { root })).toEqual({ stopped: true });
+    expect(existsSync(loopStatePath(root, "sess-1"))).toBe(false);
+    expect(await runLoopCommand(["stop", "--session", "sess-1"], { root })).toEqual({ stopped: false });
+  });
+
+  it("stop --all removes every loop file plus the legacy file", async () => {
+    const root = await makeRoot();
+    writeLoopState(root, baseState());
+    writeLoopState(root, { ...baseState(), session_id: "sess-2" });
+    await writeFile(legacyLoopPath(root), "---\ngoal: g\niteration: 1\nmax_iterations: 10\n---\n");
+    expect(await runLoopCommand(["stop", "--all"], { root })).toEqual({ stopped: true });
+    expect(listLoopStates(root)).toEqual([]);
+    expect(existsSync(legacyLoopPath(root))).toBe(false);
+  });
+
+  it("stop without --all or a session throws", async () => {
+    await expect(runLoopCommand(["stop"], { root: await makeRoot() })).rejects.toThrow(/--session|--all/);
+  });
+
+  it("tick removes a legacy shared loop file and allows", async () => {
+    const root = await makeRoot();
+    await writeFile(legacyLoopPath(root), "---\ngoal: g\niteration: 1\nmax_iterations: 10\n---\n");
+    const r = await tick("any-session", { root });
+    expect(r.decision).toBe("allow");
+    expect(r.summary).toMatch(/legacy.*loop state removed/i);
+    expect(existsSync(legacyLoopPath(root))).toBe(false);
   });
 
   it("tick --hook shapes a block into Stop-hook JSON", async () => {

@@ -1,7 +1,13 @@
 // Loop state, Stop-hook tick decisions, and shared learnings for the stories plugin.
 //
-// State file  : .claude/story-loop.local.md      (YAML-subset frontmatter via the
-//               board's parseStory/serializeStory; atomic via writeFileAtomic)
+// State files : .claude/story-loop.<session>.local.md — one per session, PER-SESSION
+//               (YAML-subset frontmatter via the board's parseStory/serializeStory;
+//               atomic via writeFileAtomic). A loop is bound to the session that
+//               started it and re-prompts only that session — the 2026-08-18
+//               incident was a shared file letting the first session to stop
+//               adopt another session's loop.
+// Legacy      : .claude/story-loop.local.md — the old pre-rework shared file.
+//               tick() unconditionally deletes it on sight (never adopts it).
 // Learnings   : .claude/story-learnings.local.md (append-only under the "learnings" lock)
 // Decisions   : tick() returns {decision: "allow"|"block", reason?, systemMessage?, summary?}
 //               toHookOutput() shapes that into Stop-hook JSON:
@@ -11,7 +17,7 @@
 // Import discipline: this module may import board/locks/util/worktrees/doctor
 // but NEVER cli.mjs — cli.mjs statically imports loop.mjs for the `loop`
 // subcommand (C6), so a back-import would be a static cycle.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { computeReady, loadConfig, loadStories, parseStory, readBodySection, serializeStory } from "./board.mjs";
 import { runDoctor } from "./doctor.mjs";
@@ -22,10 +28,28 @@ import { activeDiffs } from "./worktrees.mjs";
 // because tasks C2–C6 append code that uses them — bun does not fail on
 // unused imports.)
 
-const LOOP_FILE = ".claude/story-loop.local.md";
+const LOOP_FILE_LEGACY = ".claude/story-loop.local.md";
 const LEARNINGS_FILE = ".claude/story-learnings.local.md";
 
-export function loopStatePath(root) { return join(root, LOOP_FILE); }
+// Per-session loop state: .claude/story-loop.<session>.local.md — covered by
+// the existing `.claude/*.local.*` ignore block, so no gitignore change.
+// Session ids are UUIDs from the harness; sanitize defensively anyway since
+// the id lands in a filename.
+export function loopStatePath(root, sessionId) {
+  const safe = String(sessionId ?? "").replace(/[^A-Za-z0-9_-]/g, "_");
+  return join(root, `.claude/story-loop.${safe}.local.md`);
+}
+export function legacyLoopPath(root) { return join(root, LOOP_FILE_LEGACY); }
+
+// Every per-session loop file currently on disk (never includes the legacy file).
+export function listLoopStates(root) {
+  const dir = join(root, ".claude");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((n) => /^story-loop\..+\.local\.md$/.test(n))
+    .map((n) => join(dir, n));
+}
+
 export function learningsPath(root) { return join(root, LEARNINGS_FILE); }
 
 // ---------------------------------------------------------------- loop state
@@ -35,9 +59,7 @@ export function learningsPath(root) { return join(root, LEARNINGS_FILE); }
 // known fields, in insertion order), and parseStory hands them back typed:
 // numbers stay numbers, the attempts one-level flow map stays a map.
 
-export function readLoopState(root) {
-  const p = loopStatePath(root);
-  if (!existsSync(p)) return null;
+function parseLoopStateFile(p) {
   let s;
   try {
     s = parseStory(readFileSync(p, "utf8"), p);
@@ -56,16 +78,24 @@ export function readLoopState(root) {
   };
 }
 
+export function readLoopState(root, sessionId) {
+  const p = loopStatePath(root, sessionId);
+  if (!existsSync(p)) return null;
+  return parseLoopStateFile(p);
+}
+
+// state.session_id is required — it is the ONLY thing that determines which
+// file this write lands in (ownership binds at start, never later).
 export function writeLoopState(root, state) {
   const record = {
     goal: state.goal,
+    session_id: state.session_id,
     iteration: state.iteration,
     max_iterations: state.max_iterations,
     body: "",
   };
-  if (state.session_id) record.session_id = state.session_id;
   if (Object.keys(state.attempts ?? {}).length > 0) record.attempts = state.attempts;
-  writeFileAtomic(loopStatePath(root), serializeStory(record)); // temp+rename: atomic, creates .claude/
+  writeFileAtomic(loopStatePath(root, state.session_id), serializeStory(record)); // temp+rename: atomic, creates .claude/
 }
 
 // ----------------------------------------------------------- shared learnings
@@ -121,7 +151,7 @@ export function buildBlockReason(story, learnings, state) {
     "Acceptance criteria:",
     readBodySection(story.body, "Acceptance Criteria") || "(none recorded - treat the Description section as the contract)",
     "",
-    `Claim it with: story claim ${story.id} - implement inside its worktree (kit:build-flow), then: story done ${story.id}`,
+    `You are the worker session bound to this loop. Claim it with: story claim ${story.id}, then follow the stories:work iteration procedure exactly (dispatch planner → kit:build-flow inside the worktree → commit → story done ${story.id}). If the stories:work skill is not in context, invoke it first.`,
     `Blocked on a human decision? story park ${story.id} --question "..." and pick up the next story.`,
     "",
     "Learnings from previous iterations:",
@@ -171,6 +201,17 @@ function bump(root, state, storyId) {
 // The Stop-hook decision engine (design §10). All collaborators injectable for tests.
 export async function tick(sessionId, opts = {}) {
   const root = opts.root ?? process.cwd();
+  // Legacy shared loop state (pre-per-session rework): unconditionally removed
+  // on sight, regardless of which session ticks — this is the exact incident
+  // shape (any session could adopt it). Checked FIRST, before config or
+  // anything else, so an upgrade self-heals on the very next Stop.
+  if (existsSync(legacyLoopPath(root))) {
+    unlinkSync(legacyLoopPath(root));
+    return {
+      decision: "allow",
+      summary: 'Legacy shared loop state removed (loops are per-session now). Restart with: story loop start --goal "..."',
+    };
+  }
   // A corrupt/unreadable config means there is no drivable loop — the Stop hook
   // must NOT hard-crash on it (that would wedge every stop) and must NOT proceed
   // with an empty {} config (which would drive with undefined gates/budgets/merge).
@@ -212,31 +253,42 @@ export async function tick(sessionId, opts = {}) {
     withLock(root, "board", () =>
       runDoctor(root, config, {
         fix: true,
-        kinds: ["merged-local", "merged-self", "stale-lease", "missing-worktree"],
+        kinds: ["merged-local", "merged-self", "stale-lease", "missing-worktree", "frontmatter-state"],
       })));
 
   let state;
   try {
-    state = readLoopState(root);
+    state = readLoopState(root, sessionId);
   } catch {
-    unlinkSync(loopStatePath(root));
+    unlinkSync(loopStatePath(root, sessionId));
     return {
       decision: "allow",
       summary: 'Story loop state file was corrupt and has been removed. Restart with: story loop start --goal "..."',
     };
   }
   if (!state) return { decision: "allow" };
-  if (state.session_id && state.session_id !== sessionId) return { decision: "allow" };
-  if (!state.session_id && sessionId) {
-    state.session_id = sessionId; // bind the loop to the first session that ticks it
-    writeLoopState(root, state);
+  // Ownership is assigned at start, NEVER at tick: adopting the first session
+  // that stops was the 2026-08-18 incident — a planning session captured the
+  // worker's loop. The state file is already session-scoped by path, but keep
+  // this check as a defensive belt-and-braces guard against sanitize collisions.
+  if (!state.session_id || state.session_id !== sessionId) return { decision: "allow" };
+
+  // The state store (.claude/story-state.local.json) is now the single
+  // dependency of loadStories/saveStory for EVERY story — unlike the old
+  // per-file frontmatter, a corrupt store breaks every story at once, not
+  // just one .md file. Give it the same explicit, actionable handling
+  // loadConfig gets above: allow-stop with a clear reason, never a silent
+  // no-op via the generic hook-mode catch-all in runLoopCommand.
+  let report, scoped;
+  try {
+    report = await doctor_(); // auto-fixes land first, then the board is read
+    scoped = scopeStories(await loadStories_(), state.goal);
+  } catch (err) {
+    return { decision: "allow", summary: `Story loop cannot run: ${err.message}. Run: story doctor` };
   }
 
-  const report = await doctor_(); // auto-fixes land first, then the board is read
-  const scoped = scopeStories(await loadStories_(), state.goal);
-
   if (state.iteration >= state.max_iterations) {
-    unlinkSync(loopStatePath(root));
+    unlinkSync(loopStatePath(root, state.session_id));
     return {
       decision: "allow",
       summary: endSummary(`Iteration budget exhausted (${state.iteration}/${state.max_iterations}).`, scoped),
@@ -262,7 +314,7 @@ export async function tick(sessionId, opts = {}) {
 
   const open = scoped.filter((s) => s.status !== "done" && s.status !== "blocked");
   if (open.length === 0) {
-    unlinkSync(loopStatePath(root));
+    unlinkSync(loopStatePath(root, state.session_id));
     return {
       decision: "allow",
       summary: endSummary("Goal complete: every story in scope is done or parked.", scoped),
@@ -274,7 +326,7 @@ export async function tick(sessionId, opts = {}) {
   const eligible = ready.filter((s) => attemptsFor(state, s.id) < maxAttempts);
 
   if (ready.length > 0 && eligible.length === 0) {
-    unlinkSync(loopStatePath(root));
+    unlinkSync(loopStatePath(root, state.session_id));
     return {
       decision: "allow",
       summary: endSummary(`Every ready story has hit the per-story attempt budget (${maxAttempts}).`, scoped),
@@ -326,10 +378,18 @@ export async function runLoopCommand({ positionals = [], flags = {} } = {}, opts
   const [sub, ...rest] = positionals;
 
   if (sub === "start") {
-    if (existsSync(loopStatePath(root))) throw new CliError("a story loop is already active - run: story loop stop");
+    const session = typeof flags.session === "string" && flags.session.trim() ? flags.session.trim() : "";
+    if (!session) {
+      throw new CliError(
+        "story loop start requires a session id — pass --session <id> (the skill/hook layer supplies CLAUDE_SESSION_ID)",
+      );
+    }
+    if (existsSync(loopStatePath(root, session))) {
+      throw new CliError("a story loop is already active for this session - run: story loop stop");
+    }
     const state = {
       goal: typeof flags.goal === "string" ? flags.goal : "complete all stories",
-      session_id: typeof flags.session === "string" ? flags.session : "",
+      session_id: session,
       iteration: 0,
       max_iterations: Number(flags["max-iterations"]) || Number(loadConfig(root)?.budgets?.maxIterations) || 10,
       attempts: {},
@@ -339,17 +399,37 @@ export async function runLoopCommand({ positionals = [], flags = {} } = {}, opts
   }
 
   if (sub === "status") {
-    try {
-      const state = readLoopState(root);
-      return state ? { active: true, ...state } : { active: false };
-    } catch {
-      return { active: false, corrupt: true };
+    const session = typeof flags.session === "string" && flags.session.trim() ? flags.session.trim() : "";
+    if (session) {
+      try {
+        const state = readLoopState(root, session);
+        return state ? { active: true, ...state } : { active: false };
+      } catch {
+        return { active: false, corrupt: true };
+      }
     }
+    // No session: list every active loop on the board (design intent — a
+    // human/planner checking overall progress, not one worker's own loop).
+    const loops = [];
+    for (const p of listLoopStates(root)) {
+      try { loops.push(parseLoopStateFile(p)); } catch { /* skip corrupt entries in the list view */ }
+    }
+    return { active: loops.length > 0, loops };
   }
 
   if (sub === "stop") {
-    if (!existsSync(loopStatePath(root))) return { stopped: false };
-    unlinkSync(loopStatePath(root));
+    if (flags.all) {
+      const files = [...listLoopStates(root), legacyLoopPath(root)].filter((p) => existsSync(p));
+      for (const p of files) unlinkSync(p);
+      return { stopped: files.length > 0 };
+    }
+    const session = typeof flags.session === "string" && flags.session.trim() ? flags.session.trim() : "";
+    if (!session) {
+      throw new CliError("story loop stop requires --session <id> (or --all to stop every loop)");
+    }
+    const p = loopStatePath(root, session);
+    if (!existsSync(p)) return { stopped: false };
+    unlinkSync(p);
     return { stopped: true };
   }
 

@@ -126,6 +126,35 @@ export function isMergedSelf(root, id, { exec = run, base = "main" } = {}) {
   return r.code === 0 && r.stdout.trim() !== "";
 }
 
+/**
+ * self mode retry safety net for cmdDone's conflict fallback: is it actually
+ * safe to discard story/<id>'s branch and report done, or would that be
+ * silent data loss? isMergedSelf's message-grep alone is NOT sufficient
+ * proof — a base commit can match `^story <id>:` while carrying content that
+ * never came from this branch (e.g. a differently-resolved manual re-merge).
+ * Two cases are genuinely safe:
+ *   - the branch is already gone (a prior integrateSelf's merge+teardown ran
+ *     to completion and only the later board write crashed) — there is
+ *     nothing left to discard, so the message-grep is the only signal left
+ *     and matches what doctor's stranded-in-progress check already trusts.
+ *   - the branch still exists but its content is fully subsumed by base: an
+ *     ancestor commit, or a tree identical to base's (squash-equivalent) —
+ *     re-merging it truly contributes nothing new.
+ * Anything else means the branch carries real, un-landed content, and the
+ * caller must fall through to the conflict-report-and-throw path instead of
+ * trusting the grep.
+ */
+export function safeToDiscardOnConflict(root, id, { exec = run, base = "main" } = {}) {
+  if (!branchExists(root, id, exec)) return isMergedSelf(root, id, { exec, base });
+  const tip = exec("git", ["rev-parse", branchName(id)], { cwd: root });
+  if (tip.code !== 0) return false;
+  const branchTip = tip.stdout.trim();
+  const ancestor = exec("git", ["merge-base", "--is-ancestor", branchTip, base], { cwd: root });
+  if (ancestor.code === 0) return true;
+  const identical = exec("git", ["diff", "--quiet", base, branchTip], { cwd: root });
+  return identical.code === 0;
+}
+
 /** local mode: has a human merged story/<id> into base? (git branch --merged) */
 export function isMergedLocal(root, id, { exec = run, base = "main" } = {}) {
   if (!branchExists(root, id, exec)) return false;

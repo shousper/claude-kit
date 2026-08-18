@@ -69,7 +69,7 @@ Write each body to a scratch file for `--body-file`.
 
 ## Handoff
 
-Board filed. To execute: invoke stories:work (or tell the human to open one or more worker sessions and say "complete all stories"). Do NOT invoke kit:build-flow directly — it runs per-story inside stories:work.
+Board filed. **Your job ends here — report the board (counts + `story board` summary) and STOP.** Execution belongs to separate worker sessions: tell your human partner to open one or more worker sessions and say "complete all stories". Never invoke stories:work, `story claim`, or `story loop start` from this planning session — planning sessions own no loop, and a Stop-hook re-prompt naming a story is addressed to the worker session that started that loop, not to you. Do NOT invoke kit:build-flow directly either — it runs per-story inside stories:work.
 
 ## Red Flags
 
@@ -81,3 +81,5 @@ Board filed. To execute: invoke stories:work (or tell the human to open one or m
 - Use a whole-repo touches list — that is `exclusive: true`.
 - Hand-edit `stories/**` — the CLI is the only writer.
 - Let one story carry a second story's work — split it.
+- Claim, implement, or start a story loop from a planning session — filing the board is the whole job.
+- Act on a Stop-hook story re-prompt — those belong to the worker session bound to the loop.

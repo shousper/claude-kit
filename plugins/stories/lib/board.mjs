@@ -161,6 +161,38 @@ export function loadConfig(root) {
   }
 }
 
+// ---------------------------------------------------------------- state store
+//
+// Execution state (status/claim/feedback/pr) is CLI-owned and LOCAL — it lives
+// in .claude/story-state.local.json (matches the .claude/*.local.* ignore
+// block), never in the git-replicated story files. Rationale (2026-08-18
+// incident): frontmatter state is copied into every worktree, where
+// `git restore stories/` silently wipes claims, uncommitted claims are not
+// durable, and board-file merges conflict. Story .md files carry only
+// shareable content; this store is the single source of execution truth.
+// All access happens under the board lock via loadStories/saveStory callers.
+
+export const STATE_FIELDS = ["status", "claim", "feedback", "pr"];
+
+export function stateStorePath(root) {
+  return join(root, ".claude", "story-state.local.json");
+}
+
+export function readStateStore(root) {
+  const p = stateStorePath(root);
+  if (!existsSync(p)) return { version: 1, stories: {} };
+  try {
+    const store = JSON.parse(readFileSync(p, "utf8"));
+    return { version: 1, stories: {}, ...store };
+  } catch (err) {
+    throw new CliError(`corrupt story state store (${err.message}): ${p}`);
+  }
+}
+
+export function writeStateStore(root, store) {
+  writeFileAtomic(stateStorePath(root), `${JSON.stringify(store, null, 2)}\n`);
+}
+
 // ---------------------------------------------------------------- schema
 
 export const STATUSES = ["backlog", "todo", "in-progress", "in-review", "done", "blocked"];
@@ -248,6 +280,7 @@ export function storiesDir(root, config) {
 export function loadStories(root, config, { includeArchive = false } = {}) {
   const dirs = [storiesDir(root, config)];
   if (includeArchive) dirs.push(join(storiesDir(root, config), "archive"));
+  const state = readStateStore(root).stories;
   const stories = [];
   for (const dir of dirs) {
     if (!existsSync(dir)) continue;
@@ -261,16 +294,36 @@ export function loadStories(root, config, { includeArchive = false } = {}) {
       // this value drives stories:work's planner model/effort pick. `story doctor`
       // reports+repairs the on-disk file separately (see adoptStory).
       if (!COMPLEXITIES.includes(story.complexity)) story.complexity = "routine";
+      // State overlay: the store is the source of truth for execution state;
+      // frontmatter state is only a pre-migration fallback. A story with state
+      // in neither place is a fresh/hand-dropped file — treat as todo.
+      Object.assign(story, state[story.id]);
+      story.status ??= "todo";
       stories.push(story);
     }
   }
   return stories;
 }
 
-/** Atomic write; new stories are named <id>-<slug>.md under storiesDir. */
+/** Atomic write; new stories are named <id>-<slug>.md under storiesDir.
+ *  Execution state never reaches the .md file: it is split into the state
+ *  store (absent/null state fields clear the store entry — a story whose
+ *  every state field is default-only still records status, the store is
+ *  the source of truth once a story has been saved). */
 export function saveStory(root, config, story) {
   const file = story.file ?? join(storiesDir(root, config), `${story.id}-${slugify(story.title)}.md`);
-  writeFileAtomic(file, serializeStory(story));
+  const content = { ...story };
+  const entry = {};
+  for (const k of STATE_FIELDS) {
+    if (content[k] !== undefined && content[k] !== null) entry[k] = content[k];
+    delete content[k];
+  }
+  const store = readStateStore(root); // read before mutating the .md file: a corrupt/unreadable
+  // store must abort the save before any on-disk mutation, so the old .md content (and its state
+  // fields, for unmigrated stories) survives as a recovery fallback.
+  writeFileAtomic(file, serializeStory(content));
+  store.stories[story.id] = entry;
+  writeStateStore(root, store);
   return { ...story, file };
 }
 

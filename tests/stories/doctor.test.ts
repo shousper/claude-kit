@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import { loadStories } from "../../plugins/stories/lib/board.mjs";
+import { loadStories, readStateStore } from "../../plugins/stories/lib/board.mjs";
 import { CliError } from "../../plugins/stories/lib/util.mjs";
 import { flipStatus, runDoctor } from "../../plugins/stories/lib/doctor.mjs";
 import { DEFAULT_CONFIG, makeRepo, runStory, storyText, writeStoryFile } from "./helpers";
@@ -20,7 +20,9 @@ const git = (cwd: string, ...args: string[]) => {
 describe("story doctor — detection", () => {
   test("healthy board → exit 0, no issues", async () => {
     const repo = await makeRepo();
-    await writeStoryFile(repo.root, "st-0001-a.md", storyText({ id: "st-0001", title: "a", status: "todo" }));
+    // status omitted from frontmatter (defaults to "todo" via the overlay) —
+    // a raw status field here would itself be a frontmatter-state issue.
+    await writeStoryFile(repo.root, "st-0001-a.md", storyText({ id: "st-0001", title: "a" }));
     const r = await runStory(repo.root, ["doctor", "--json"]);
     expect(r.code).toBe(0);
     expect((r.json() as { issues: Issue[] }).issues).toEqual([]);
@@ -48,7 +50,14 @@ describe("story doctor — detection", () => {
     expect(r.code).toBe(0); // soft issues do not fail the command
     const { issues } = r.json() as { issues: Issue[] };
     expect(kinds(issues)).toEqual(
-      ["cycle", "dangling-dep", "invalid", "orphan-worktree", "stale-lease", "unadopted"].sort(),
+      // frontmatter-state fires for every story above with a raw status field
+      // still in its file (st-0001/0002/0003/0005 — st-0004 is skipped, its
+      // status is illegal so it never reaches the state-fields check).
+      [
+        "cycle", "dangling-dep",
+        "frontmatter-state", "frontmatter-state", "frontmatter-state", "frontmatter-state",
+        "invalid", "orphan-worktree", "stale-lease", "unadopted",
+      ].sort(),
     );
     expect(issues.find((i) => i.kind === "dangling-dep")).toMatchObject({ id: "st-0001", dep: "st-dead" });
     expect(issues.find((i) => i.kind === "cycle")!.ids).toEqual(expect.arrayContaining(["st-0002", "st-0003"]));
@@ -309,9 +318,31 @@ describe("story doctor --fix", () => {
       kinds: ["merged-local", "stale-lease"],
     });
     expect(report.fixed.map((f: { kind: string }) => f.kind)).toEqual(["lease-reclaimed"]);
-    expect(kinds(report.issues as Issue[])).toEqual(["stale-lease", "unadopted"]); // both still REPORTED
+    // frontmatter-state is reported (raw status/claim still on disk) but not
+    // in the fix kinds list, so it stays detect-only alongside unadopted.
+    expect(kinds(report.issues as Issue[])).toEqual(["frontmatter-state", "stale-lease", "unadopted"].sort());
     expect(loadStories(repo.root, CONFIG).find((s) => s.id === "st-0001")!.status).toBe("todo");
     expect(existsSync(join(repo.root, "stories/loose-idea.md"))).toBe(true); // unadopted → detect-only
+    await repo.cleanup();
+  });
+
+  test("frontmatter-state: doctor --fix migrates status/claim into the store and strips the file", async () => {
+    const repo = await makeRepo();
+    // write a legacy story file with state in frontmatter (bypass saveStory)
+    writeFileSync(
+      join(repo.root, "stories", "st-a1a1-legacy.md"),
+      "---\nid: st-a1a1\ntitle: Legacy\nstatus: in-progress\nclaim: {session: old, lease: 2026-08-18T00:00:00Z}\n---\n\n## Description\n",
+    );
+    // a live worktree keeps this out of the unrelated missing-worktree check —
+    // this test is isolating the frontmatter-state migration.
+    mkdirSync(join(repo.root, ".worktrees", "st-a1a1"), { recursive: true });
+    // now pinned just after the lease so it reads as fresh, not stale — this
+    // test is about the frontmatter-state migration, not stale-lease reclaim.
+    const report = runDoctor(repo.root, DEFAULT_CONFIG, { fix: true, now: Date.parse("2026-08-18T00:00:01Z") });
+    expect(report.issues.some((i) => i.kind === "frontmatter-state" && i.id === "st-a1a1")).toBe(true);
+    const raw = readFileSync(join(repo.root, "stories", "st-a1a1-legacy.md"), "utf8");
+    expect(raw).not.toContain("status:");
+    expect(readStateStore(repo.root).stories["st-a1a1"].status).toBe("in-progress");
     await repo.cleanup();
   });
 });

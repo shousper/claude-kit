@@ -9,7 +9,7 @@ This project runs the story workflow. The board is `stories/*.md`; the `story` C
 
 ## Rules
 
-1. **Never hand-edit board or loop files** (`stories/**`, `.claude/story-loop.local.md`, learnings, evidence). Every mutation is a `story` command — a hook denies direct writes and names the command to run instead. Do not route around it with Bash.
+1. **Never hand-edit board or loop files** (`stories/**`, `.claude/story-loop.*.local.md`, `.claude/story-state.local.json` (execution state), learnings, evidence). Every mutation is a `story` command — a hook denies direct writes and names the command to run instead. Do not route around it with Bash. Story loops are per-session: a loop only ever re-prompts the session that started it.
 2. **`done` is evidence- and plan-gated.** `story done` refuses a story with no `## Implementation Plan` on record (<10 words = thin), runs command gates, and checks review verdicts itself. Never declare a story complete — the CLI decides.
 3. **Ready is computed, never stored.** Trust `story ready`, not file contents or memory.
 4. **Park, don't stall.** Human-only decision → `story park <id> --question "…"`, take the next story. Parked questions surface at run end — never bury them.

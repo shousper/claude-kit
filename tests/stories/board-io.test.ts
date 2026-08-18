@@ -73,8 +73,9 @@ describe("loadStories / saveStory", () => {
     const repo = await makeRepo();
     const file = await writeStoryFile(repo.root, "st-0001-one.md", storyText({ id: "st-0001", title: "one", status: "todo" }));
     const loaded = loadStories(repo.root, CONFIG)[0];
-    saveStory(repo.root, CONFIG, { ...loaded, status: "in-progress" });
-    expect(readFileSync(file, "utf8")).toContain("status: in-progress");
+    const saved = saveStory(repo.root, CONFIG, { ...loaded, status: "in-progress" });
+    expect(saved.file).toBe(file);
+    expect(loadStories(repo.root, CONFIG)[0].status).toBe("in-progress");
     await repo.cleanup();
   });
 

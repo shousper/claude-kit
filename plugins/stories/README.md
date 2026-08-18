@@ -35,7 +35,7 @@ The `merge` field in `.claude/story-workflow.json` picks the integration style:
 | `local` | You, locally | Gates green → story parks `in-review` with its worktree; you review and merge; the loop detects the landed branch and moves on. |
 | `pr` | GitHub PRs (multiplayer) | Gates green → branch pushed, PR opened with AC + evidence summary. Review feedback becomes ready work items (processed via kit:receiving-review); merged PRs close stories; main drift is merged back into open PR branches and gates re-run. |
 
-Run more workers by opening more terminals in the same repo — claiming is lock-safe, each story gets its own worktree under `.worktrees/`, and shared learnings cross-pollinate between workers.
+Run more workers by opening more terminals in the same repo — claiming is lock-safe, each story gets its own worktree under `.worktrees/`, and shared learnings cross-pollinate between workers. Loop state is per-session (`story loop start` binds to the caller's session, auto-supplied from `CLAUDE_SESSION_ID`), so multiple workers genuinely run in parallel: each session's Stop hook only ever re-prompts that same session, never another worker's.
 
 **ONE-MACHINE ASSUMPTION: all agent workers must run on the same machine.** Coordination uses lockfiles under `.claude/locks/`, which do not work across machines or network filesystems — a second machine (even in `pr` mode) can silently corrupt the board. Humans on other machines participate through story files and PRs, never by running workers.
 
@@ -55,9 +55,10 @@ CLAUDE_CODE_STOP_HOOK_BLOCK_CAP=50 claude
 | Path | Committed? | What |
 |---|---|---|
 | `.claude/story-workflow.json` | yes | Marker + config: merge mode, gates, defaults, budgets |
-| `stories/*.md` | yes | The board — one markdown file per story, YAML frontmatter |
+| `stories/*.md` | yes | The board — one markdown file per story, content only (title, description, ACs, plan); execution state lives elsewhere |
 | `stories/archive/` | yes | Done stories moved out of the active set (`story archive`) |
-| `.claude/story-loop.local.md` | no | Per-session loop state |
+| `.claude/story-state.local.json` | no | Execution-state store: status, claims, gate verdicts, evidence pointers per story |
+| `.claude/story-loop.<session>.local.md` | no | Per-session loop state — one file per worker session |
 | `.claude/story-learnings.local.md` | no | Shared learnings between parallel workers |
 | `.claude/story-sweep.local.json` | no | PR-sweep cursor state (`pr` mode only) |
 | `.claude/story-evidence/` | no | Gate-run evidence per story |

@@ -5,7 +5,12 @@
 # --dangerously-skip-permissions. Bash remains a known loophole (design §10):
 # not chased — the CLI-as-sanctioned-path + doctor backstop is the robust pair.
 set -euo pipefail
-[ -f .claude/story-workflow.json ] || exit 0
+# Resolve the MAIN checkout root — hooks fire with cwd anywhere in the repo,
+# including inside story worktrees where the marker is invisible to $PWD.
+common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || exit 0
+root="$(dirname "$common")"
+[ -f "$root/.claude/story-workflow.json" ] || exit 0
+cd "$root"
 
 input="$(cat)"
 
@@ -29,25 +34,32 @@ case "$rel" in
   "$PWD"/*) rel="${rel#"$PWD"/}" ;;
 esac
 
+# Name the exact CLI command for this file in the deny reason. Two families
+# of CLI-owned files: the board itself (per-story hint via the id) and the
+# CLI-owned local state store (loop/learnings/evidence files, session state).
 case "$rel" in
-  "$stories_dir"/*|"$stories_dir") ;;
+  "$stories_dir"/*|"$stories_dir")
+    id="$(basename "$rel" | sed -n 's/^\(st-[0-9a-f][0-9a-f]*\).*/\1/p')"
+    if [ -n "$id" ]; then
+      hint="story update ${id} --status <status>, story note ${id} --body '...', or story park ${id} --question '...'"
+    else
+      hint="story create --title '...' --type <type> [--body-file <path>]"
+    fi
+    reason="Files under ${stories_dir}/ are managed by the story CLI - never hand-edit the board. Use: ${hint}. Read views: story show <id>, story board."
+    ;;
+  .claude/story-state.local.json|.claude/story-loop.*.local.md|.claude/story-loop.local.md|.claude/story-learnings.local.md|.claude/story-evidence/*)
+    hint="the story CLI (story update / story loop … / story loop learn / story record)"
+    reason="This file is CLI-owned local execution state - never hand-edit it. Use: ${hint}."
+    ;;
   *) exit 0 ;;
 esac
-
-# Name the exact CLI command for this file in the deny reason.
-id="$(basename "$rel" | sed -n 's/^\(st-[0-9a-f][0-9a-f]*\).*/\1/p')"
-if [ -n "$id" ]; then
-  hint="story update ${id} --status <status>, story note ${id} --body '...', or story park ${id} --question '...'"
-else
-  hint="story create --title '...' --type <type> [--body-file <path>]"
-fi
 
 cat <<EOF
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "deny",
-    "permissionDecisionReason": "Files under ${stories_dir}/ are managed by the story CLI - never hand-edit the board. Use: ${hint}. Read views: story show <id>, story board."
+    "permissionDecisionReason": "${reason}"
   }
 }
 EOF

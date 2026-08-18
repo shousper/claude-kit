@@ -132,6 +132,38 @@ describe("story done — self mode", () => {
     expect(JSON.parse(r.stderr).error).toMatch(/expected in-progress/);
     await repo.cleanup();
   });
+
+  test("story done on an already-done story is a success no-op", async () => {
+    const repo = await makeRepo();
+    const id = await claimedStory(repo);
+    expect((await runStory(repo.root, ["done", id, "--allow-unplanned"])).code).toBe(0);
+    const second = await runStory(repo.root, ["done", id, "--json"]);
+    expect(second.code).toBe(0);
+    expect(second.json()).toMatchObject({ id, status: "done", already: true });
+    await repo.cleanup();
+  });
+
+  test("a matching commit message alone does NOT excuse a real conflict — branch content is verified, not discarded", async () => {
+    const repo = await makeRepo();
+    const id = await claimedStory(repo); // branch has an uncommitted-to-base "implement" commit
+    // A base commit happens to match the merge-message convention (what
+    // isMergedSelf greps for) but carries content that never came from this
+    // branch — e.g. a human's manual, differently-resolved merge. The retry's
+    // `git merge` genuinely conflicts, and the message-grep match must NOT be
+    // trusted to discard the still-present, still-divergent branch.
+    writeFileSync(join(repo.root, "impl.ts"), "already landed differently\n");
+    git(repo.root, "add", "impl.ts");
+    git(repo.root, "commit", "-m", `story ${id}: story under test`);
+
+    const r = await runStory(repo.root, ["done", id, "--json", "--allow-unplanned"]);
+    expect(r.code).toBe(1);
+    expect(JSON.parse(r.stderr).error).toMatch(/conflict/);
+    const s = loadStories(repo.root, CONFIG).find((x) => x.id === id)!;
+    expect(s.status).toBe("in-progress"); // not silently closed
+    expect(existsSync(join(repo.root, ".worktrees", id))).toBe(true); // branch content preserved
+    await repo.cleanup();
+  });
+
 });
 
 describe("story done — local mode", () => {

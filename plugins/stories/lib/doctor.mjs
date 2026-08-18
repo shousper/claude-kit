@@ -92,6 +92,17 @@ export function runDoctor(root, config, opts = {}) {
   const archived = loadRawStories(join(dir, "archive"), issues, { hard: false });
   const known = new Set([...active, ...archived].map((s) => s.id).filter(Boolean));
 
+  // Overlay execution state onto the raw parse (mirrors board.loadStories):
+  // a migrated story's status/claim/etc live in the store, not the file, so
+  // reading `active` raw-only would flag every healthy saved story as
+  // "invalid" for having no on-disk status. Unmigrated legacy files still
+  // carry their state in frontmatter and are unaffected by the no-op assign.
+  const state = board.readStateStore(root).stories;
+  for (const s of active) {
+    Object.assign(s, state[s.id]);
+    s.status ??= "todo";
+  }
+
   for (const s of active) {
     if (!s.id) {
       issues.push({ kind: "unadopted", file: s.file, detail: "hand-written story without an id" });
@@ -111,6 +122,13 @@ export function runDoctor(root, config, opts = {}) {
       issues.push({ kind: "invalid", id: s.id, file: s.file, detail: `illegal or missing status '${s.status}'` });
       if (shouldFix("invalid")) fixed.push(adoptStory(root, config, s, known));
       continue;
+    }
+    // Migration (state-layer rework): state fields still present in the .md
+    // frontmatter. Safe auto-fix — saveStory strips them into the store.
+    const raw = board.parseStory(readFileSync(s.file, "utf8"), s.file);
+    if (board.STATE_FIELDS.some((k) => raw[k] !== undefined)) {
+      issues.push({ kind: "frontmatter-state", id: s.id, file: s.file });
+      if (shouldFix("frontmatter-state")) board.saveStory(root, config, s);
     }
     const dangling = (s.depends_on ?? []).filter((dep) => !known.has(dep));
     for (const dep of dangling) issues.push({ kind: "dangling-dep", id: s.id, dep });

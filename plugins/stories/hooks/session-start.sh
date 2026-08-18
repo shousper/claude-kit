@@ -3,7 +3,12 @@
 # board snapshot on startup, resume, clear, and - critically - compact (long
 # autonomous runs compact and silently drop workflow rules).
 set -euo pipefail
-[ -f .claude/story-workflow.json ] || exit 0
+# Resolve the MAIN checkout root — hooks fire with cwd anywhere in the repo,
+# including inside story worktrees where the marker is invisible to $PWD.
+common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || exit 0
+root="$(dirname "$common")"
+[ -f "$root/.claude/story-workflow.json" ] || exit 0
+cd "$root"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

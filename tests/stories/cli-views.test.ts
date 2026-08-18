@@ -57,4 +57,13 @@ describe("story show", () => {
     expect((await runStory(repo.root, ["show"])).code).toBe(1);
     await repo.cleanup();
   });
+
+  test("human view prints a state header ahead of the raw file", async () => {
+    const repo = await makeRepo();
+    const created = await runStory(repo.root, ["create", "--title", "b"]);
+    expect(created.code).toBe(0);
+    const human = await runStory(repo.root, ["show", created.stdout.trim()]);
+    expect(human.stdout).toContain("status: todo");
+    await repo.cleanup();
+  });
 });

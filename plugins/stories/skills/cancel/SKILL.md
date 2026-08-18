@@ -11,9 +11,13 @@ The escape hatch. Stopping is cheap, safe, and never loses work — say so, then
 
 ### 1. Stop the loop
 
+Loops are per-session — stopping one worker's loop needs its session id (or run this from that worker's own session, which supplies it automatically via `CLAUDE_SESSION_ID`); stopping every loop on the board needs `--all`.
+
 ```bash
-story loop status --json   # capture goal + iterations used vs budget BEFORE stopping
-story loop stop            # returns {stopped: true|false}
+story loop status --json                # no session: lists every active loop on the board
+story loop status --session <id> --json # one worker's loop — capture goal + iterations used vs budget BEFORE stopping
+story loop stop --session <id>          # stop that one worker's loop — returns {stopped: true|false}
+story loop stop --all                   # stop every loop on the board
 ```
 
 Report the goal and iterations-vs-budget from the status output. If status reports no active loop (`{active: false}`), say so and continue to the report — the human still wants the picture.
@@ -47,6 +51,6 @@ From `story board` (and `story list --json` where detail helps):
 
 **Never:**
 
-- Delete or edit `.claude/story-loop.local.md` by hand — `story loop stop` owns it.
+- Delete or edit `.claude/story-loop.*.local.md` by hand — `story loop stop` owns it.
 - Un-claim another session's story.
 - Bury parked questions — they are the point of the report.

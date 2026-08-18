@@ -69,7 +69,7 @@ async function makeProject(opts: {
       version: 1, storiesDir, merge: "self", gates: {}, defaults: {},
       budgets: { maxIterations: 10, maxFixRoundsPerStory: 3 },
     }));
-    if (opts.loopState) await writeFile(join(dir, ".claude/story-loop.local.md"), opts.loopState);
+    if (opts.loopState) await writeFile(join(dir, ".claude/story-loop.sess-1.local.md"), opts.loopState);
   }
   for (const [name, content] of Object.entries(opts.stories ?? {})) {
     await writeFile(join(dir, storiesDir, name), content);
@@ -79,6 +79,17 @@ async function makeProject(opts: {
   await git(["config", "user.email", "t@example.com"]);
   await git(["config", "user.name", "t"]);
   return dir;
+}
+
+// Creates a story worktree off `dir` via `git worktree add` — hooks fire with
+// cwd inside such worktrees, where the marker/board files are invisible to $PWD.
+async function addWorktree(dir: string): Promise<string> {
+  const git = (args: string[]) => Bun.spawn(["git", ...args], { cwd: dir, stdout: "ignore", stderr: "ignore" }).exited;
+  await git(["add", "-A"]);
+  await git(["commit", "-m", "init"]);
+  const worktreeDir = await mkdtemp(join(tmpdir(), "stories-hooks-wt-")).then(realpath);
+  await git(["worktree", "add", "--detach", worktreeDir]);
+  return worktreeDir;
 }
 
 describe("guard-stories.sh", () => {
@@ -133,6 +144,14 @@ describe("guard-stories.sh", () => {
     const r = await runHook("guard-stories.sh", dir, preToolUse(dir, "src/index.ts"));
     expect(r.exitCode).toBe(0);
     expect(r.stdout.trim()).toBe("");
+  });
+
+  it("denies an Edit of the CLI-owned state store, pointing at the story CLI", async () => {
+    const dir = await makeProject();
+    const r = await runHook("guard-stories.sh", dir, preToolUse(dir, ".claude/story-state.local.json", "Edit"));
+    const out = JSON.parse(r.stdout);
+    expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(out.hookSpecificOutput.permissionDecisionReason).toContain("story CLI");
   });
 });
 
@@ -190,6 +209,20 @@ describe("stop-loop.sh", () => {
     expect(out.decision).toBeUndefined();
     expect(out.systemMessage).toMatch(/corrupt/i);
   });
+
+  it("still blocks when cwd is a story worktree, not the main checkout", async () => {
+    const dir = await makeProject({
+      stories: { "st-a1b2-sample-ready-story.md": SAMPLE_STORY },
+      loopState: LOOP_STATE,
+    });
+    const worktreeDir = await addWorktree(dir);
+    const r = await runHook("stop-loop.sh", worktreeDir, stopEvent(worktreeDir));
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout.trim()).not.toBe("");
+    const out = JSON.parse(r.stdout);
+    expect(out.decision).toBe("block");
+    expect(out.reason).toContain("st-a1b2");
+  });
 });
 
 describe("session-start.sh", () => {
@@ -220,6 +253,19 @@ describe("session-start.sh", () => {
     expect(ctx).toContain("stories workflow");
     expect(ctx).toContain("st-a1b2");           // from story ready --json
     expect(ctx).toContain("story loop status"); // loop-status section header
+  });
+
+  it("still injects additionalContext when cwd is a story worktree, not the main checkout", async () => {
+    const dir = await makeProject({
+      stories: { "st-a1b2-sample-ready-story.md": SAMPLE_STORY },
+      loopState: LOOP_STATE,
+    });
+    const worktreeDir = await addWorktree(dir);
+    const r = await runHook("session-start.sh", worktreeDir, startEvent(worktreeDir));
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout.trim()).not.toBe("");
+    const out = JSON.parse(r.stdout);
+    expect(out.hookSpecificOutput.additionalContext).toContain("stories workflow");
   });
 });
 
