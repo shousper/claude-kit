@@ -6,6 +6,7 @@ import { SKILLS_DIR } from "../utils/paths";
 const WORKFLOWS = [
   { skill: "build-flow", file: "build.workflow.js", name: "build-flow-batch-runner" },
   { skill: "code-review", file: "review.workflow.js", name: "code-review-runner" },
+  { skill: "../../stories/skills/work", file: "plan.workflow.js", name: "story-planners" },
 ];
 
 describe("bundled workflow scripts", () => {

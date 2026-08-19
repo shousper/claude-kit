@@ -353,6 +353,7 @@ async function cmdUpdate(ctx) {
   const [id] = ctx.positionals;
   if (!id) throw new CliError("usage: story update <id> --<field> <value> …");
   const story = await mutateStory(ctx, id, (s) => {
+    const wasInProgress = s.status === "in-progress";
     if (ctx.flags.status !== undefined) {
       board.assertTransition(s.status, ctx.flags.status);
       s.status = ctx.flags.status;
@@ -369,7 +370,36 @@ async function cmdUpdate(ctx) {
       }
       s.priority = ctx.flags.priority;
     }
-    if (ctx.flags.complexity !== undefined) s.complexity = board.assertComplexity(ctx.flags.complexity);
+    if (ctx.flags.complexity !== undefined) {
+      if (wasInProgress) {
+        // Complexity selects the planner model tier (plan.workflow.js). Locking
+        // it during work makes "downgrade the planner" unreachable from inside
+        // the worker loop — changing the tier is a board decision, made with a
+        // human, on a story that is not being worked.
+        throw new CliError(
+          `complexity is set at board approval and locked while in-progress — release the story first (story update ${s.id} --status todo) and ask your human partner`,
+        );
+      }
+      const next = board.assertComplexity(ctx.flags.complexity);
+      // In-progress lock alone isn't enough: `story park` legally clears the
+      // claim and drops status to blocked, and blocked→todo is a legal
+      // transition — so unpark-then-downgrade-then-reclaim would otherwise
+      // re-plan a parked story on a cheaper tier with no human in the loop.
+      // cmdPark stamps `parked_complexity` with the highest tier ever
+      // attempted; a downgrade below it is refused until a human explicitly
+      // clears the lock with --clear-park-lock.
+      if (s.parked_complexity !== undefined && ctx.flags["clear-park-lock"] !== true) {
+        const nextIdx = board.COMPLEXITIES.indexOf(next);
+        const lockedIdx = board.COMPLEXITIES.indexOf(s.parked_complexity);
+        if (nextIdx < lockedIdx) {
+          throw new CliError(
+            `${s.id} was parked at complexity '${s.parked_complexity}' — downgrading below that tier needs a human decision: re-run with --clear-park-lock once your human partner has reviewed the park question`,
+          );
+        }
+      }
+      s.complexity = next;
+      if (ctx.flags["clear-park-lock"] === true) delete s.parked_complexity;
+    }
     if (ctx.flags["depends-on"] !== undefined) s.depends_on = ctx.flags["depends-on"];
     if (ctx.flags.touches !== undefined) s.touches = ctx.flags.touches;
     if (ctx.flags.gates !== undefined) s.gates = ctx.flags.gates;
@@ -404,6 +434,14 @@ async function cmdPark(ctx) {
     board.assertTransition(s.status, "blocked");
     s.status = "blocked";
     delete s.claim; // park-and-continue: the worker moves on, the lease must not go stale
+    // Stamp the tier the planner was actually attempted at. `story update`
+    // refuses to downgrade complexity below this until a human clears it —
+    // closes the unpark→downgrade→reclaim loophole (see cmdUpdate). Keep the
+    // highest tier ever attempted across repeated park cycles.
+    const attempted = s.complexity ?? "routine";
+    if (s.parked_complexity === undefined || board.COMPLEXITIES.indexOf(attempted) > board.COMPLEXITIES.indexOf(s.parked_complexity)) {
+      s.parked_complexity = attempted;
+    }
     s.body = appendToSection(s.body, "## Questions", `- ${nowISO()}: ${ctx.flags.question}`);
   });
   output(ctx, { id, status: "blocked" }, [`parked ${id} — question recorded`]);

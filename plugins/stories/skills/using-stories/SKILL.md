@@ -37,5 +37,5 @@ Every read takes `--json`; every mutation locks — safe with parallel workers.
 
 ## Skills
 
-- stories:work — the worker loop (claim → plan via dispatched agent (routine→sonnet/high, hard→opus/xhigh, frontier→fable/xhigh) → story update --plan-file → build-flow gets the planner's batches → done)
+- stories:work — the worker loop (claim → plan via the bundled planning workflow, which pins the planner model by story complexity → story update --plan-file → build-flow gets the planner's batches → done)
 - stories:plan — spec → stories · stories:setup — onboarding · stories:cancel — stop + report

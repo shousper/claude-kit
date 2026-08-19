@@ -14,7 +14,7 @@
     {
       "name": "stories",
       "description": "Story-based autonomous workflow: markdown story board, typed verification gates, goal loop, parallel same-machine workers",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "source": "./plugins/stories"
     }
   ]

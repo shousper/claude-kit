@@ -31,27 +31,27 @@ One story per iteration, in this order:
 
 `story claim <id>` — verifies readiness under lock, writes your lease, creates `.worktrees/st-<id>` on branch `story/st-<id>`. Lost the race (claim error) → re-run `story ready` and take the next. Never work on a story you have not claimed.
 
-### 3. Plan via a dispatched planner — never inline
+### 3. Plan via the bundled planning workflow — never inline, never model-choosing
 
-Every claimed story gets an execution-time plan from a dispatched agent — even when the story already carries one (prerequisites may have merged since it was written; the planner validates and refreshes against the code as it is NOW). Never plan inline in the worker session, and never skip this step: `story done` refuses a story without a plan on record.
+Every claimed story gets an execution-time plan from the bundled `plan.workflow.js` — even when the story already carries one (prerequisites may have merged since it was written; the planner validates and refreshes against the code as it is NOW). The workflow pins the planner model from story `complexity` in code (routine→sonnet, hard→opus, frontier→fable — `frontier` is your human partner's explicit opt-in, made at board approval; complexity is locked while the story is in-progress). You never pick, retry at a different tier, or substitute a planner model — that decision does not exist in this session.
 
-Model by story `complexity` (from `story show --json`; absent = routine):
+Launch (this skill's base directory is announced when the skill loads):
 
-| complexity | planner model | effort |
-|---|---|---|
-| routine | sonnet | high |
-| hard | opus | xhigh |
-| frontier | fable | xhigh |
+    Workflow({
+      scriptPath: "<skill-base>/plan.workflow.js",
+      args: [
+        { id: "st-XXXX",
+          complexity: "<from story show --json; absent = routine>",
+          worktree: "<absolute path to .worktrees/st-XXXX>",
+          storyBody: "<the full story body — paste it; the planner must not re-read the board>" }
+      ]
+    })
 
-`frontier` is your human partner's explicit opt-in to Fable, made at board-approval time — never self-assign it.
+It runs in the background — WAIT for its completion notification before proceeding (same rule as build-flow; never end your turn with it running). Claimed several stories? Pass them all in one call — they plan in parallel. Read the completion envelope's `.result`, then per story:
 
-Dispatch ONE planner agent (Agent tool, model per the table) with: the full story body (description, ACs, existing plan — paste it, the agent must not re-read the board), the worktree path, and this output contract:
-
-> Explore the code in the worktree first; verify every file pointer in the story against reality. Return exactly two blocks:
-> `<plan>` — the implementation plan as markdown: numbered steps, exact file paths, what each test proves. This becomes the story's permanent plan of record.
-> `<batches>` — a JSON array of batches (arrays of task objects `{"id": "...", "title": "...", "prompt": "..."}`): bite-sized TDD tasks, each prompt fully self-contained (an implementer with zero context must be able to execute it without reading the story). One batch unless tasks genuinely must land sequentially.
-
-Then: save `<plan>` to a scratch file → `story update <id> --plan-file <file>`; hold `<batches>` for step 4. A planner that reports the story is unimplementable as specified (contradicts the code, missing prerequisite) → park the story with its question instead of proceeding.
+- `planned` → save its `plan` to a scratch file → `story update <id> --plan-file <file>`; hold its `batches` for step 4.
+- `unimplementable` → `story park <id> --question "<its question>"` and move on.
+- `planner-failed` → `story park <id> --question "planner failed at <model>: <error>"` and move on. You may relaunch the workflow ONCE with `resumeFromRunId` first (successes are cached; only failures re-run). A planner failure is never a model-selection problem — there is no alternative-model path, and complexity cannot change while the story is in-progress.
 
 ### 4. Implement via kit:build-flow — inside the worktree
 
@@ -154,8 +154,10 @@ Global iterations and per-story fix rounds come from config (defaults 10 / 3). T
 - Merge to main yourself — integration is the CLI's.
 - Continue past a stopped loop, restart it, or edit budgets.
 - Swallow parked questions from the final summary.
-- Skip the planner dispatch, plan inline in the worker session, or pass the raw story to build-flow as one fat task.
+- Skip the planning workflow, plan inline in the worker session, or pass the raw story to build-flow as one fat task.
+- Dispatch a planner via the Agent tool, at a self-chosen model, or "fall back" to a lesser model on failure — planning goes through plan.workflow.js only; failures park.
 - Self-assign `frontier` complexity — that escalation belongs to your human partner at approval time.
+- Unpark a story (`--status todo`) then downgrade its `complexity` to reclaim and re-plan at a cheaper tier — the CLI stamps and enforces the parked tier, but the loophole is closed at the board level: only your human partner clears it (`--clear-park-lock`).
 
 ## Integration
 

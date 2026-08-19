@@ -137,6 +137,58 @@ describe("story update — complexity", () => {
     expect(readFileSync(s.file, "utf8")).not.toContain("complexity:");
     await repo.cleanup();
   });
+
+  test("--complexity is refused while in-progress", async () => {
+    const repo = await makeRepo();
+    await writeStoryFile(
+      repo.root,
+      "st-0001-a.md",
+      storyText({
+        id: "st-0001", title: "a", status: "in-progress",
+        claim: "{session: w1, lease: 2026-07-08T00:00:00.000Z}",
+      }),
+    );
+    const r = await runStory(repo.root, ["update", "st-0001", "--complexity", "hard"]);
+    expect(r.code).toBe(1);
+    expect(JSON.parse(r.stderr).error).toMatch(/complexity is set at board approval/);
+    await repo.cleanup();
+  });
+
+  test("--complexity still works on a todo story", async () => {
+    const repo = await makeRepo();
+    await writeStoryFile(repo.root, "st-0001-a.md", storyText({ id: "st-0001", title: "a", status: "todo" }));
+    const r = await runStory(repo.root, ["update", "st-0001", "--complexity", "hard"]);
+    expect(r.code).toBe(0);
+    const show = await runStory(repo.root, ["show", "st-0001", "--json"]);
+    expect((show.json() as { complexity: string }).complexity).toBe("hard");
+    await repo.cleanup();
+  });
+
+  test("downgrading below a parked tier is refused after unpark, even though todo is legal", async () => {
+    const repo = await makeRepo();
+    await writeStoryFile(
+      repo.root,
+      "st-0001-a.md",
+      storyText({
+        id: "st-0001", title: "a", status: "in-progress", complexity: "hard",
+        claim: "{session: w1, lease: 2026-07-08T00:00:00.000Z}",
+      }),
+    );
+    expect((await runStory(repo.root, ["park", "st-0001", "--question", "q"])).code).toBe(0);
+    expect((await runStory(repo.root, ["update", "st-0001", "--status", "todo"])).code).toBe(0);
+    const r = await runStory(repo.root, ["update", "st-0001", "--complexity", "routine"]);
+    expect(r.code).toBe(1);
+    expect(JSON.parse(r.stderr).error).toMatch(/parked at complexity 'hard'/);
+    // still refused via a re-claim/downgrade cycle without the lock flag
+    const s = loadStories(repo.root, CONFIG)[0];
+    expect(s.complexity).toBe("hard");
+    // a human clears the lock explicitly, then the downgrade is allowed
+    const cleared = await runStory(repo.root, ["update", "st-0001", "--complexity", "routine", "--clear-park-lock"]);
+    expect(cleared.code).toBe(0);
+    const show = await runStory(repo.root, ["show", "st-0001", "--json"]);
+    expect((show.json() as { complexity: string }).complexity).toBe("routine");
+    await repo.cleanup();
+  });
 });
 
 describe("story note", () => {
@@ -174,6 +226,22 @@ describe("story park", () => {
     // done is terminal: parking a done story is illegal
     await writeStoryFile(repo.root, "st-0002-b.md", storyText({ id: "st-0002", title: "b", status: "done" }));
     expect((await runStory(repo.root, ["park", "st-0002", "--question", "q"])).code).toBe(1);
+    await repo.cleanup();
+  });
+
+  test("stamps parked_complexity with the tier the story was parked at", async () => {
+    const repo = await makeRepo();
+    await writeStoryFile(
+      repo.root,
+      "st-0001-a.md",
+      storyText({
+        id: "st-0001", title: "a", status: "in-progress", complexity: "hard",
+        claim: "{session: w1, lease: 2026-07-08T00:00:00.000Z}",
+      }),
+    );
+    await runStory(repo.root, ["park", "st-0001", "--question", "q1"]);
+    const s = loadStories(repo.root, CONFIG)[0];
+    expect((s as { parked_complexity?: string }).parked_complexity).toBe("hard");
     await repo.cleanup();
   });
 });
