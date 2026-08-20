@@ -230,6 +230,36 @@ describe("tick: session ownership + terminal decisions", () => {
     expect(readLoopState(root, "sess-1")!.session_id).toBe("sess-1"); // ownership unchanged
   });
 
+  it("allows quietly, without bumping, while this session's own claim is in flight", async () => {
+    const root = await makeRoot();
+    writeLoopState(root, baseState()); // session_id: "sess-1", iteration 2
+    const r = await runTick({
+      root,
+      stories: [
+        sampleStory({ id: "st-a1b2", status: "in-progress", claim: { session: "sess-1", lease: "2026-08-20T00:00:00Z" } }),
+        sampleStory({ id: "st-c3d4", title: "Next story" }),
+      ],
+    });
+    expect(r.decision).toBe("allow");
+    expect(r.summary).toContain("st-a1b2");
+    expect(r.summary).toContain("in flight");
+    expect(readLoopState(root, "sess-1")!.iteration).toBe(2); // no bump — nothing was prompted
+  });
+
+  it("another session's in-flight claim does not suppress this session's next prompt", async () => {
+    const root = await makeRoot();
+    writeLoopState(root, baseState());
+    const r = await runTick({
+      root,
+      stories: [
+        sampleStory({ id: "st-a1b2", status: "in-progress", claim: { session: "sess-OTHER", lease: "2026-08-20T00:00:00Z" } }),
+        sampleStory({ id: "st-c3d4", title: "Next story" }),
+      ],
+    });
+    expect(r.decision).toBe("block");
+    expect(r.reason).toContain("st-c3d4");
+  });
+
   it("still drives when the ticking session matches the owning session", async () => {
     const root = await makeRoot();
     writeLoopState(root, baseState()); // session_id: "sess-1"

@@ -47,7 +47,7 @@ Launch (this skill's base directory is announced when the skill loads):
       ]
     })
 
-It runs in the background — WAIT for its completion notification before proceeding (same rule as build-flow; never end your turn with it running). Claimed several stories? Pass them all in one call — they plan in parallel. Read the completion envelope's `.result`, then per story:
+It runs in the background — launch it, then **end your turn**. The completion notification re-invokes you with the result envelope; the Stop-hook loop will not touch your claimed story while it is in flight. NEVER call TaskOutput or otherwise poll a running workflow — your turn ending is the yield. Claimed several stories? Pass them all in one call — they plan in parallel. When the completion arrives, read the envelope's `.result`, then per story:
 
 - `planned` → save its `plan` to a scratch file → `story update <id> --plan-file <file>`; hold its `batches` for step 4.
 - `unimplementable` → `story park <id> --question "<its question>"` and move on.
@@ -58,7 +58,7 @@ It runs in the background — WAIT for its completion notification before procee
 All implementation happens in `.worktrees/st-<id>`. Three hard rules, each from a real incident:
 
 - **cd into the worktree in your session shell IMMEDIATELY before invoking kit:build-flow, verify with `pwd`, and pass the worktree path as build-flow's `args.worktree`.** Workflow agents inherit the shell's cwd, not the path named in their prompts — launching from the main repo split-brains the run (agents edit main's tree, reviewers report "no implementation", fixes land in the wrong copy). After the workflow returns, `git -C <repo-root> status --porcelain` must show only board files; anything else is a split brain — port stray changes into the worktree, then restore main.
-- **Block until build-flow completes** (TaskOutput with block=true) before gating, committing, or ending your turn. Ending the turn with a workflow still running lets the Stop hook tick the loop and re-prompt you with the NEXT story while this one is half-built.
+- **Launch build-flow, then end your turn — continuation is event-driven.** The workflow's completion notification re-invokes you with its result envelope; gating, committing, and closing happen in that re-invocation. The loop tick holds quietly while this session's claim is in flight, so ending the turn is safe. NEVER call TaskOutput or poll a running workflow — polling burns context and, across turns, targets reaped task ids.
 - build-flow's worktree requirement is already satisfied by the story worktree; do NOT create another.
 
 Invoke kit:build-flow with the planner's `<batches>` as `args.batches` — never the raw story as a single fat task. The story body stays the spec; the planner output is the plan.
@@ -145,7 +145,8 @@ Global iterations and per-story fix rounds come from config (defaults 10 / 3). T
 - Implement outside the story's worktree, or without a claim.
 - Run probes, captures, or verification inline in the worker session — dispatch them; read only structured results back.
 - Run `story done` with uncommitted work in the worktree — the CLI now refuses, but the commit is your job, not a formality.
-- End a turn (or claim the next story) while a build-flow workflow is still running.
+- Poll or block on a running workflow (TaskOutput, status loops) — completion notifications drive continuation; end your turn instead.
+- Claim another story while one is in flight in this session — one story per iteration; the loop resumes when the current one closes.
 - Launch build-flow with the shell cwd outside the story worktree, or without `args.worktree`.
 - Commit `stories/**` board files into a story branch.
 - Close a story any way other than a passing `story done`.

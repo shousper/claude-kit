@@ -321,6 +321,23 @@ export async function tick(sessionId, opts = {}) {
     };
   }
 
+  // Event-driven continuation: a story already claimed by THIS session is in
+  // flight — its background workflow's completion notification re-invokes the
+  // session, so the tick must neither prompt the NEXT story (the half-built-
+  // story steal) nor block-nag (which forces TaskOutput polling). Quiet allow;
+  // the loop resumes when the claim clears (done or park). A dead session's
+  // claim is reclaimed by the doctor's stale-lease backstop as before.
+  const inFlight = scoped.find((s) => s.status === "in-progress" && s.claim?.session === sessionId);
+  if (inFlight) {
+    return {
+      decision: "allow",
+      summary: [
+        `Story loop holding: ${inFlight.id} is in flight in this session — the loop resumes when it closes (story done ${inFlight.id}) or parks.`,
+        `If nothing is actually running for it, resume work on it now, or release it: story update ${inFlight.id} --status todo`,
+      ].join("\n"),
+    };
+  }
+
   const ready = await computeReady_(scoped);
   const maxAttempts = Number(config?.budgets?.maxFixRoundsPerStory) || 3;
   const eligible = ready.filter((s) => attemptsFor(state, s.id) < maxAttempts);
