@@ -4,6 +4,8 @@ import { join } from "path";
 import { runEval } from "../utils/eval-runner";
 import { createWorkspace } from "../utils/workspace-manager";
 import { parseStreamJson } from "../utils/workflow-invocation";
+import { claude } from "../utils/harness";
+import { STORIES_ROOT } from "../utils/paths";
 
 // End-to-end stories loop: given the marker config and a seeded board (fixture
 // workspace-stories, gates = `true`), does a live agent drive the story CLI —
@@ -68,12 +70,13 @@ describe.skipIf(!RUN_EVALS)("stories:work live loop", () => {
         Array.from({ length: TRIALS }, async () => {
           const ws = await createWorkspace({ workspace: "stories" });
           try {
-            const result = await runEval(PROMPT, {
+            const result = await runEval(claude, PROMPT, {
               timeout: PER_TRIAL_TIMEOUT,
               maxTurns: MAX_TURNS,
               cwd: ws.cwd,
               env: ws.env,
-              noSessionPersistence: true,
+              pluginDirs: [claude.pluginRoot, STORIES_ROOT],
+              ephemeral: true,
               dangerouslySkipPermissions: true,
             });
             const cliCalls = storyCliCalls(result.stdout);

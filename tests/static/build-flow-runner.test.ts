@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { SKILLS_DIR } from "../utils/paths";
+import { KIT_CLAUDE_ROOT } from "../utils/paths";
 
 // The bundled runner is authored against the Workflow runtime, which injects globals
 // (args, agent, parallel, phase, log), supports top-level await, and allows a top-level
@@ -11,7 +11,7 @@ import { SKILLS_DIR } from "../utils/paths";
 // passed as a JSON string -> zero batches -> a silent `done` that looked like success.
 
 const SRC = readFileSync(
-  resolve(SKILLS_DIR, "build-flow", "build.workflow.js"),
+  resolve(KIT_CLAUDE_ROOT, "skills", "build-flow", "build.workflow.js"),
   "utf-8",
 ).replace("export const meta", "const meta"); // `export` is illegal inside a Function body
 

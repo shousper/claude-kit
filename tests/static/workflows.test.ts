@@ -1,19 +1,19 @@
 import { describe, it, expect } from "bun:test";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
-import { SKILLS_DIR } from "../utils/paths";
+import { KIT_CLAUDE_ROOT, STORIES_ROOT } from "../utils/paths";
 
 const WORKFLOWS = [
-  { skill: "build-flow", file: "build.workflow.js", name: "build-flow-batch-runner" },
-  { skill: "code-review", file: "review.workflow.js", name: "code-review-runner" },
-  { skill: "../../stories/skills/work", file: "plan.workflow.js", name: "story-planners" },
+  { base: resolve(KIT_CLAUDE_ROOT, "skills/build-flow"), file: "build.workflow.js", name: "build-flow-batch-runner" },
+  { base: resolve(KIT_CLAUDE_ROOT, "skills/code-review"), file: "review.workflow.js", name: "code-review-runner" },
+  { base: resolve(STORIES_ROOT, "skills/work"), file: "plan.workflow.js", name: "story-planners" },
 ];
 
 describe("bundled workflow scripts", () => {
   for (const wf of WORKFLOWS) {
-    const path = resolve(SKILLS_DIR, wf.skill, wf.file);
+    const path = resolve(wf.base, wf.file);
 
-    describe(`${wf.skill}/${wf.file}`, () => {
+    describe(wf.file, () => {
       it("exists", () => {
         expect(existsSync(path)).toBe(true);
       });

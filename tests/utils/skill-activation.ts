@@ -1,15 +1,20 @@
 /**
- * Detects whether a live agent activated a given skill by inspecting stream-json
- * output for Skill tool calls (preferred) or qualified text mentions.
+ * Detects whether a live agent activated a given skill from a harness's normalized
+ * events. The harness-specific signal (a `Skill` tool call for Claude, a `skill://`
+ * read for OMP) lives in the adapter; this module owns the shared policy: try the
+ * adapter's signal, fall back to scanning `text` events for the qualified name, and
+ * flag runs where a silent model fallback makes the result untrustworthy.
  *
  * Skill keys may be bare kit names ("tdd") or plugin-namespaced ("stories:work").
  * Bare names belong to the kit plugin.
  */
 
-import { parseStreamJson } from "./stream-json";
+import type { Harness, NormalizedEvent } from "./harness/types";
 
 export interface ActivationCheck {
   activated: boolean;
+  /** True when the run silently changed model mid-flight; the case must be discarded, not scored. */
+  invalid: boolean;
   details: string;
 }
 
@@ -20,45 +25,27 @@ function skillNames(skill: string): { qualified: string; bare: string } {
   return { qualified: skill, bare: skill.slice(i + 1) };
 }
 
-export function checkSkillActivation(stdout: string, skill: string): ActivationCheck {
-  const events = parseStreamJson(stdout);
-  if (events.length === 0)
-    return { activated: false, details: "No parseable events in output" };
+function describeToolCalls(events: NormalizedEvent[]): string {
+  const calls = events
+    .filter((e): e is Extract<NormalizedEvent, { kind: "tool_call" }> => e.kind === "tool_call")
+    .map((e) => `${e.tool}(${JSON.stringify(e.input).slice(0, 80)})`);
+  return calls.length > 0 ? `Tools called: ${calls.join(", ")}` : "No tool calls found";
+}
 
-  const { qualified, bare } = skillNames(skill);
+export function checkSkillActivation(harness: Harness, stdout: string, skill: string): ActivationCheck {
+  const events = harness.parse(stdout);
+  const invalid = events.some((e) => e.kind === "fallback");
 
+  if (events.length === 0) return { activated: false, invalid, details: "No parseable events in output" };
+
+  if (harness.skillActivationSignal(events, skill))
+    return { activated: true, invalid, details: `${harness.id} activation signal matched for "${skill}"` };
+
+  const { qualified } = skillNames(skill);
   for (const event of events) {
-    if (event.type !== "assistant") continue;
-    const content = event.message?.content;
-    if (!Array.isArray(content)) continue;
-    for (const block of content) {
-      if (block.type === "tool_use" && block.name === "Skill") {
-        const invoked = block.input?.skill;
-        if (invoked === qualified || invoked === bare)
-          return { activated: true, details: `Skill tool called with "${invoked}"` };
-      }
-    }
+    if (event.kind === "text" && event.text.includes(qualified))
+      return { activated: true, invalid, details: `Found "${qualified}" in assistant text` };
   }
 
-  for (const event of events) {
-    if (event.type !== "assistant") continue;
-    const content = event.message?.content;
-    if (!Array.isArray(content)) continue;
-    for (const block of content) {
-      if (block.type === "text" && block.text?.includes(qualified))
-        return { activated: true, details: `Found "${qualified}" in assistant text` };
-    }
-  }
-
-  const toolCalls = events
-    .filter((e: any) => e.type === "assistant")
-    .flatMap((e: any) => (e.message?.content ?? []).filter((b: any) => b.type === "tool_use"))
-    .map((b: any) => `${b.name}(${JSON.stringify(b.input).slice(0, 80)})`);
-
-  return {
-    activated: false,
-    details: toolCalls.length > 0
-      ? `Tools called: ${toolCalls.join(", ")}`
-      : "No tool calls found",
-  };
+  return { activated: false, invalid, details: describeToolCalls(events) };
 }

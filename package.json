@@ -3,8 +3,9 @@
   "private": true,
   "scripts": {
     "test": "bun test tests/static tests/stories tests/fixtures tests/utils",
-    "test:evals": "bun test tests/evals --concurrent --max-concurrency 4 --timeout 120000",
-    "test:evals:smoke": "bun test tests/utils/config-dir.test.ts --timeout 60000",
+    "test:evals:smoke": "EVAL_TIER=smoke bun test tests/evals/activation.test.ts --timeout 120000",
+    "test:evals": "EVAL_TIER=full bun test tests/evals --concurrent --max-concurrency 4 --timeout 120000",
+    "test:evals:parity": "EVAL_TIER=parity HARNESSES=omp bun test tests/evals/activation.test.ts --concurrent --max-concurrency 4 --timeout 120000",
     "test:all": "bun test"
   },
   "devDependencies": {

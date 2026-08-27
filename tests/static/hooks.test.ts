@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync, readdirSync, accessSync, constants } from "fs";
 import { resolve } from "path";
-import { HOOKS_DIR } from "../utils/paths";
+import { HOOKS_DIR, KIT_CLAUDE_HOOKS_DIR } from "../utils/paths";
 
 // Source: Claude Code hook system — update these when Claude Code adds new events/tools
 // See: https://docs.anthropic.com/en/docs/claude-code/hooks
@@ -13,9 +13,11 @@ const VALID_TOOL_MATCHERS = [
 const VALID_SESSION_EVENTS = ["startup", "resume", "clear", "compact"];
 const SHELLCHECK = Bun.which("shellcheck") ?? "shellcheck";
 
-const hooksPath = resolve(HOOKS_DIR, "hooks.json");
+// hooks.json (Claude schema) lives in the kit-claude plugin now — shared/hooks/
+// holds only the neutral, harness-agnostic scripts it delegates to.
+const hooksPath = resolve(KIT_CLAUDE_HOOKS_DIR, "hooks.json");
 const hooksConfig = JSON.parse(readFileSync(hooksPath, "utf-8"));
-const pluginRoot = resolve(HOOKS_DIR, "..");
+const pluginRoot = resolve(KIT_CLAUDE_HOOKS_DIR, "..");
 
 describe("hooks.json", () => {
   it("is valid JSON with a hooks object", () => {
@@ -71,11 +73,12 @@ describe("hooks.json", () => {
     }
   });
 
-  it.skipIf(!Bun.which("shellcheck"))("all .sh files in hooks/ pass shellcheck", async () => {
-    const scripts = readdirSync(HOOKS_DIR).filter((f) => f.endsWith(".sh"));
+  it.skipIf(!Bun.which("shellcheck"))("all .sh files in kit-claude hooks/ and shared/hooks/ pass shellcheck", async () => {
+    const dirs = [KIT_CLAUDE_HOOKS_DIR, HOOKS_DIR];
+    const scripts = dirs.flatMap((d) => readdirSync(d).filter((f) => f.endsWith(".sh")).map((f) => resolve(d, f)));
     expect(scripts.length).toBeGreaterThan(0);
     for (const script of scripts) {
-      const proc = Bun.spawn([SHELLCHECK, "-s", "bash", resolve(HOOKS_DIR, script)], {
+      const proc = Bun.spawn([SHELLCHECK, "-s", "bash", script], {
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -111,7 +114,7 @@ describe("hooks.json", () => {
 
 describe("session-start.sh", () => {
   it("exits 0 and produces valid JSON with expected structure", async () => {
-    const proc = Bun.spawn(["bash", resolve(HOOKS_DIR, "session-start.sh")], {
+    const proc = Bun.spawn(["bash", resolve(KIT_CLAUDE_HOOKS_DIR, "session-start.sh")], {
       stdout: "pipe",
       stderr: "pipe",
       env: { ...process.env, HOME: process.env.HOME ?? "/tmp" },

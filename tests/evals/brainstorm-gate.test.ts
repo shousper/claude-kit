@@ -1,6 +1,8 @@
 import { describe, it } from "bun:test";
 import { runEval } from "../utils/eval-runner";
 import { createWorkspace } from "../utils/workspace-manager";
+import { claude } from "../utils/harness";
+import { STORIES_ROOT } from "../utils/paths";
 
 const TRIALS = 3;
 const REQUIRED_PASSES = 2;
@@ -117,14 +119,15 @@ function formatTrialReport(
 async function runGateTrial(session: "brainstorm-design-approved" | "brainstorm-at-transition", prompt: string) {
   const workspace = await createWorkspace({ session });
   try {
-    const result = await runEval(prompt, {
+    const result = await runEval(claude, prompt, {
       timeout: PER_TRIAL_TIMEOUT,
       maxTurns: 8,
       cwd: workspace.cwd,
       env: workspace.env,
+      pluginDirs: [claude.pluginRoot, STORIES_ROOT],
+      ephemeral: true,
       resume: workspace.sessionId,
       forkSession: true,
-      noSessionPersistence: true,
     });
     const gate = checkBrainstormGate(result.stdout);
     const calls = extractToolCalls(result.stdout);

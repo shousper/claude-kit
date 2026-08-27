@@ -1,0 +1,7 @@
+{"type":"session","sessionId":"fallback-error-session"}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"retry_fallback_applied","from":"claude-sonnet-4-5","to":"claude-sonnet-4-0"}
+{"type":"extension_error","extensionPath":"~/.omp/extensions/kit","event":"tool_execution_start","error":"extension crashed: ENOENT config.json"}
+{"type":"turn_end","message":{"content":[]}}
+{"type":"agent_end","messages":[],"isTerminal":true}

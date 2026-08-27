@@ -1,0 +1,1 @@
+../../../../shared/skills/code-review/dispatch-template.md

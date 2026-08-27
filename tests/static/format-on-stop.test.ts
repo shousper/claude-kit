@@ -2,7 +2,8 @@ import { describe, it, expect, afterAll } from "bun:test";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { runHook, cleanupHookWorkspace, makeFakeBin, getHclWorkspace, getHookWorkspace } from "../utils/hook-workspace";
+import { runHook, runNeutralScript, cleanupHookWorkspace, makeFakeBin, getHclWorkspace, getHookWorkspace } from "../utils/hook-workspace";
+import { HOOKS_DIR } from "../utils/paths";
 
 function extractJsonOrNull(stdout: string): any {
   const t = stdout.trim();
@@ -95,9 +96,9 @@ describe("format-on-stop.sh: hcl", () => {
     const c = await cfg();
     const bin = await mkdtemp(join(tmpdir(), "fakebin-"));
     await makeFakeBin(bin, "tofu"); // fake tofu logs its argv
-    const env = { CLAUDE_CONFIG_DIR: c, PATH: `${bin}:${process.env.PATH}` };
+    const env = { CLAUDE_CONFIG_DIR: c, KIT_STATE_DIR: join(c, "kit/state"), PATH: `${bin}:${process.env.PATH}` };
     // Pre-set the tool so detection is deterministic.
-    await runHook("hcl-tool.sh", { tool_name: "", tool_input: {}, cwd: ws.dir, args: ["set", ws.dir, "tofu"], env });
+    await runHook("hcl-tool.sh", { tool_name: "", tool_input: {}, cwd: ws.dir, args: ["set", ws.dir, "tofu"], env, dir: HOOKS_DIR });
     // Record an edit via the unified recorder, then format at Stop.
     await runHook("record.sh", { tool_name: "Edit", tool_input: { file_path: join(ws.dir, "main.tf") }, cwd: ws.dir, session_id: "hf1", env });
     const r = await runHook("format-on-stop.sh", { tool_name: "", tool_input: {}, cwd: ws.dir, session_id: "hf1", env });
@@ -150,8 +151,8 @@ describe("format-on-stop.sh: hcl", () => {
     const c = await cfg();
     const bin = await mkdtemp(join(tmpdir(), "fakebin-"));
     await makeFakeBin(bin, "tofu");
-    const env = { CLAUDE_CONFIG_DIR: c, PATH: `${bin}:${process.env.PATH}` };
-    await runHook("hcl-tool.sh", { tool_name: "", tool_input: {}, cwd: ws.dir, args: ["set", ws.dir, "tofu"], env });
+    const env = { CLAUDE_CONFIG_DIR: c, KIT_STATE_DIR: join(c, "kit/state"), PATH: `${bin}:${process.env.PATH}` };
+    await runHook("hcl-tool.sh", { tool_name: "", tool_input: {}, cwd: ws.dir, args: ["set", ws.dir, "tofu"], env, dir: HOOKS_DIR });
 
     // .terraform present (initialized layer) → validate must STILL NOT appear.
     await mkdir(join(ws.dir, ".terraform"), { recursive: true });
@@ -383,5 +384,46 @@ describe("format-on-stop.sh: rust-checks", () => {
     await rm(c, { recursive: true, force: true });
     await rm(emptyBin, { recursive: true, force: true });
     await rm(crate, { recursive: true, force: true });
+  });
+});
+
+describe("format-files.sh (neutral: args/env in, plain text out, no JSON)", () => {
+  it("silent + exit 0 for no files", async () => {
+    const r = await runNeutralScript("format-files.sh");
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout.trim()).toBe("");
+  });
+
+  it("formats a touched .go file given directly as an argument, no JSON anywhere", async () => {
+    const bin = await mkdtemp(join(tmpdir(), "bin-"));
+    await makeFakeBin(bin, "gofmt");
+    const ws = await mkdtemp(join(tmpdir(), "go-"));
+    const f = join(ws, "a.go");
+    await writeFile(f, "package main\n");
+    const r = await runNeutralScript("format-files.sh", { args: [f], cwd: ws, env: { PATH: `${bin}:${process.env.PATH}` } });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout.trim()).toBe(""); // formatter success → no finding
+    expect(r.stdout).not.toContain("{"); // never JSON
+    const log = await readFile(join(bin, "gofmt.log"), "utf-8");
+    expect(log).toContain("-w");
+    expect(log).toContain(f);
+    await rm(bin, { recursive: true, force: true });
+    await rm(ws, { recursive: true, force: true });
+  });
+
+  it("surfaces a finding as plain text (never JSON-wrapped)", async () => {
+    const bin = await mkdtemp(join(tmpdir(), "bin-"));
+    await makeFakeBin(bin, "npx",
+      `#!/usr/bin/env bash\necho "$@" >> "${join(bin, "npx.log")}"\necho "  1:7  error  'unused' is assigned a value but never used  no-unused-vars"\nexit 1\n`);
+    const ws = await getHookWorkspace();
+    await mkdir(join(ws.dir, "src"), { recursive: true });
+    const f = join(ws.dir, "src", "dirty.ts");
+    await writeFile(f, "const unused = 1;\n");
+    const r = await runNeutralScript("format-files.sh", { args: [f], cwd: ws.dir, env: { PATH: `${bin}:${process.env.PATH}` } });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("no-unused-vars");
+    expect(r.stdout).not.toContain("{"); // plain text, not JSON
+    await rm(bin, { recursive: true, force: true });
+    await rm(f, { force: true });
   });
 });

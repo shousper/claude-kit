@@ -2,6 +2,8 @@ import { describe, it } from "bun:test";
 import { runEval } from "../utils/eval-runner";
 import { createWorkspace, type WorkspaceOptions } from "../utils/workspace-manager";
 import { checkWorkflowInvocation, findWorkflowCalls } from "../utils/workflow-invocation";
+import { claude } from "../utils/harness";
+import { STORIES_ROOT } from "../utils/paths";
 
 // These evals answer the one question static tests cannot: given the build-flow skill, does a
 // real agent emit a correctly-shaped `Workflow` launch call? The workflow itself is never
@@ -57,13 +59,14 @@ describe.skipIf(!RUN_EVALS)("build-flow workflow invocation", () => {
           Array.from({ length: TRIALS }, async () => {
             const ws = await createWorkspace(scenario.session ? { session: scenario.session } : {});
             try {
-              const result = await runEval(scenario.prompt, {
+              const result = await runEval(claude, scenario.prompt, {
                 timeout: PER_TRIAL_TIMEOUT,
                 maxTurns: MAX_TURNS,
                 cwd: ws.cwd,
                 env: ws.env,
-                noSessionPersistence: true,
-                ...(ws.sessionId ? { resume: ws.sessionId, forkSession: true } : {}),
+                pluginDirs: [claude.pluginRoot, STORIES_ROOT],
+                ephemeral: true,
+                ...(scenario.session && ws.sessionId ? { resume: ws.sessionId, forkSession: true } : {}),
               });
               const check = checkWorkflowInvocation(result.stdout);
               return { ...check, exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };

@@ -3,6 +3,7 @@ import { readdir } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 import { runEval } from "./eval-runner";
+import { claude } from "./harness";
 import { createWorkspace, type Workspace } from "./workspace-manager";
 
 const RUN_EVALS = process.env.RUN_EVALS === "1";
@@ -21,10 +22,9 @@ describe.skipIf(!RUN_EVALS)("eval environment isolation", () => {
     const ws = await createWorkspace();
     workspaces.push(ws);
 
-    const result = await runEval("Reply with just the word PONG", {
+    const result = await runEval(claude, "Reply with just the word PONG", {
       timeout: 45_000,
       maxTurns: 1,
-      pluginDir: false,
       env: ws.env,
       cwd: ws.cwd,
     });
@@ -41,11 +41,10 @@ describe.skipIf(!RUN_EVALS)("eval environment isolation", () => {
     const ws = await createWorkspace({ session: "post-brainstorm" });
     workspaces.push(ws);
 
-    const result = await runEval("What was discussed earlier in this session?", {
+    const result = await runEval(claude, "What was discussed earlier in this session?", {
       maxTurns: 1,
       resume: ws.sessionId!,
       forkSession: true,
-      pluginDir: false,
       env: ws.env,
       cwd: ws.cwd,
     });

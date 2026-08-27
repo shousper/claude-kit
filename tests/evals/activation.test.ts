@@ -1,16 +1,25 @@
 import { describe, it } from "bun:test";
 import { runEval } from "../utils/eval-runner";
+import { runTrials } from "../utils/trials";
 import { activationTests, type ActivationTest } from "../fixtures/prompts";
 import { createWorkspace } from "../utils/workspace-manager";
 import { checkSkillActivation } from "../utils/skill-activation";
+import { selectHarnesses, type Harness } from "../utils/harness";
+import { paritySubset, smokeSubset } from "../utils/parity";
+import { STORIES_ROOT } from "../utils/paths";
 
 const TRIALS = 3;
 const REQUIRED_PASSES = 2;
 const PER_TRIAL_TIMEOUT = 60_000;
 const SKIP_CLEANUP = process.env.SKIP_CLEANUP === "1";
 const RUN_EVALS = process.env.RUN_EVALS === "1";
+const EVAL_TIER = process.env.EVAL_TIER;
 
-const VALID_SESSIONS = new Set(["post-brainstorm", "mid-session"] as const);
+type SessionContext = "post-brainstorm" | "mid-session";
+const VALID_SESSIONS: Record<SessionContext, true> = { "post-brainstorm": true, "mid-session": true };
+function isValidSession(context: string): context is SessionContext {
+  return Object.hasOwn(VALID_SESSIONS, context);
+}
 
 function truncate(s: string, max = 300): string {
   if (!s) return "(empty)";
@@ -32,74 +41,115 @@ function formatTrialReport(trials: Array<{ activated: boolean; details: string; 
 // Group tests by skill, then by session context
 type GroupedTests = Record<string, Record<string, ActivationTest[]>>;
 
-const grouped = activationTests.reduce<GroupedTests>((acc, test) => {
-  const context = test.sessionContext ?? "cold-start";
-  (acc[test.skill] ??= {})[context] ??= [];
-  acc[test.skill][context].push(test);
-  return acc;
-}, {});
+function groupTests(tests: ActivationTest[]): GroupedTests {
+  return tests.reduce<GroupedTests>((acc, test) => {
+    const context = test.sessionContext ?? "cold-start";
+    (acc[test.skill] ??= {})[context] ??= [];
+    acc[test.skill][context].push(test);
+    return acc;
+  }, {});
+}
 
-describe.skipIf(!RUN_EVALS)("skill activation", () => {
-  for (const [skill, contexts] of Object.entries(grouped)) {
-    describe(skill, () => {
-      for (const [context, tests] of Object.entries(contexts)) {
-        describe(context, () => {
-          for (const test of tests) {
-            const label = test.shouldActivate
-              ? `activates on: ${test.prompt.slice(0, 60)}`
-              : `does NOT activate on: ${test.prompt.slice(0, 60)}`;
+/** EVAL_TIER controls spend: smoke is PR-tier, parity proves the mechanism on a
+ *  second harness, full/unset is the whole description-quality matrix. */
+function selectCases(): ActivationTest[] {
+  if (EVAL_TIER === "smoke") return smokeSubset(activationTests);
+  if (EVAL_TIER === "parity") return paritySubset(activationTests);
+  return activationTests;
+}
 
-            it(label, async () => {
-              if (context !== "cold-start" && !VALID_SESSIONS.has(context as any))
-                throw new Error(`Unknown session context: ${context}`);
-              const sessionOpt = VALID_SESSIONS.has(context as any) ? context as "post-brainstorm" | "mid-session" : undefined;
+function runActivationSuite(harness: Harness) {
+  const grouped = groupTests(selectCases());
+  // Each harness installs from its own plugin dir (see Harness.pluginRoot for why).
+  const pluginDirs = [harness.pluginRoot, STORIES_ROOT];
 
-              const trials = await Promise.all(
-                Array.from({ length: TRIALS }, async () => {
-                  const trialWorkspace = await createWorkspace({
-                    ...(sessionOpt ? { session: sessionOpt } : {}),
-                    ...(test.workspace ? { workspace: test.workspace } : {}),
-                  });
-                  try {
-                    const evalOpts = {
-                      timeout: PER_TRIAL_TIMEOUT,
-                      maxTurns: 3,
-                      cwd: trialWorkspace.cwd,
-                      env: trialWorkspace.env,
-                      noSessionPersistence: true,
-                      ...(trialWorkspace.sessionId ? { resume: trialWorkspace.sessionId, forkSession: true } : {}),
-                    };
-                    const result = await runEval(test.prompt, evalOpts);
-                    return { ...checkSkillActivation(result.stdout, test.skill), ...result };
-                  } finally {
-                    if (!SKIP_CLEANUP) await trialWorkspace.cleanup();
-                  }
-                }),
-              );
+  describe.skipIf(!RUN_EVALS)(`skill activation (${harness.id})`, () => {
+    for (const [skill, contexts] of Object.entries(grouped)) {
+      describe(skill, () => {
+        for (const [context, tests] of Object.entries(contexts)) {
+          describe(context, () => {
+            for (const test of tests) {
+              const label = test.shouldActivate
+                ? `activates on: ${test.prompt.slice(0, 60)}`
+                : `does NOT activate on: ${test.prompt.slice(0, 60)}`;
 
-              const passes = trials.filter((t) => t.activated).length;
+              it(label, async () => {
+                if (context !== "cold-start" && !isValidSession(context))
+                  throw new Error(`Unknown session context: ${context}`);
+                const sessionOpt = isValidSession(context) ? context : undefined;
 
-              if (test.shouldActivate && passes < REQUIRED_PASSES) {
-                throw new Error(
-                  `[POSITIVE TEST FAILED] Skill "${test.skill}" activated ${passes}/${TRIALS} times (need ${REQUIRED_PASSES})\n` +
-                    `Prompt: "${test.prompt}"\n` +
-                    `Context: ${context}\n` +
-                    `Trials:\n${formatTrialReport(trials)}`,
-                );
-              }
+                const trialDetails: Array<{ activated: boolean; details: string; exitCode: number; stdout: string; stderr: string }> = [];
 
-              if (!test.shouldActivate && passes >= REQUIRED_PASSES) {
-                throw new Error(
-                  `[NEGATIVE TEST FAILED] Skill "${test.skill}" should NOT have activated, but did ${passes}/${TRIALS} times\n` +
-                    `Prompt: "${test.prompt}"\n` +
-                    `Context: ${context}\n` +
-                    `Trials:\n${formatTrialReport(trials)}`,
-                );
-              }
-            }, PER_TRIAL_TIMEOUT + 30_000); // Trials are concurrent, so timeout = 1 trial + buffer
-          }
-        });
-      }
-    });
-  }
-});
+                const outcome = await runTrials({
+                  trials: TRIALS,
+                  requiredPasses: REQUIRED_PASSES,
+                  run: async () => {
+                    const trialWorkspace = await createWorkspace({
+                      ...(sessionOpt ? { session: sessionOpt } : {}),
+                      ...(test.workspace ? { workspace: test.workspace } : {}),
+                    });
+                    try {
+                      const result = await runEval(harness, test.prompt, {
+                        timeout: PER_TRIAL_TIMEOUT,
+                        maxTurns: 3,
+                        cwd: trialWorkspace.cwd,
+                        env: trialWorkspace.env,
+                        pluginDirs,
+                        ephemeral: true,
+                        ...(sessionOpt && trialWorkspace.sessionId
+                          ? { resume: trialWorkspace.sessionId, forkSession: true }
+                          : {}),
+                      });
+                      const check = checkSkillActivation(harness, result.stdout, test.skill);
+                      trialDetails.push({ activated: check.activated, details: check.details, ...result });
+                      return { pass: check.activated, invalid: check.invalid };
+                    } finally {
+                      if (!SKIP_CLEANUP) await trialWorkspace.cleanup();
+                    }
+                  },
+                });
+
+                if (outcome.invalid) {
+                  throw new Error(
+                    `[INVALID RUN] Harness "${harness.id}" silently changed model mid-run for skill "${test.skill}"\n` +
+                      `Prompt: "${test.prompt}"\n` +
+                      `Context: ${context}\n` +
+                      `Trials:\n${formatTrialReport(trialDetails)}`,
+                  );
+                }
+
+                if (test.shouldActivate && !outcome.passed) {
+                  throw new Error(
+                    `[POSITIVE TEST FAILED] Skill "${test.skill}" activated ${outcome.passes}/${outcome.ran} times on ${harness.id} (need ${REQUIRED_PASSES})\n` +
+                      `Prompt: "${test.prompt}"\n` +
+                      `Context: ${context}\n` +
+                      `Trials:\n${formatTrialReport(trialDetails)}`,
+                  );
+                }
+
+                if (!test.shouldActivate && outcome.passed) {
+                  throw new Error(
+                    `[NEGATIVE TEST FAILED] Skill "${test.skill}" should NOT have activated on ${harness.id}, but did ${outcome.passes}/${outcome.ran} times\n` +
+                      `Prompt: "${test.prompt}"\n` +
+                      `Context: ${context}\n` +
+                      `Trials:\n${formatTrialReport(trialDetails)}`,
+                  );
+                }
+              // runTrials executes sequentially (early-exit on requiredPasses/maxFailures), so
+              // worst case is every trial running to completion: TRIALS * PER_TRIAL_TIMEOUT.
+              }, TRIALS * PER_TRIAL_TIMEOUT + 30_000);
+            }
+          });
+        }
+      });
+    }
+  });
+}
+
+// Session continuation (--resume/--fork-session) is wired on the claude harness (RunOptions.resume
+// + forkSession, tests/utils/harness/claude.ts). It's a no-op on omp: workspace-manager.ts writes
+// Claude JSONL session fixtures only, and omp's session store doesn't read that format, so
+// post-brainstorm/mid-session cases still cold-start on omp until the fixture format is shared.
+for (const harness of selectHarnesses(process.env.HARNESSES)) {
+  runActivationSuite(harness);
+}

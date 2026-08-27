@@ -3,10 +3,10 @@ import { readdirSync, existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { resolve } from "path";
 import { parseSkill, type ParsedSkill } from "../utils/skill-parser";
-import { KIT_ROOT, STORIES_ROOT } from "../utils/paths";
+import { SKILLS_DIR, STORIES_ROOT, KIT_CLAUDE_ROOT, KIT_OMP_ROOT } from "../utils/paths";
 
 const PLUGIN_SKILL_ROOTS: Record<string, string> = {
-  kit: resolve(KIT_ROOT, "skills"),
+  kit: SKILLS_DIR,
   stories: resolve(STORIES_ROOT, "skills"),
 };
 
@@ -116,7 +116,7 @@ describe("skill companion files", () => {
       for (const m of stripped.matchAll(/@([a-z][\w-]*\.md)\b/g)) refs.add(m[1]);
       // Match plain-text "see file.md" style references (simple filenames only)
       for (const m of stripped.matchAll(/(?:see |See |\*\*)`?([a-z][\w-]*\.md)`?\*?\*?/g)) refs.add(m[1]);
-      // Normalize paths: strip skill dir prefix (e.g. `code-review/code-reviewer.md` -> `code-reviewer.md`)
+      // Normalize paths: strip skill dir prefix (e.g. `code-review/dispatch-template.md` -> `dispatch-template.md`)
       const normalized = new Set<string>();
       for (const ref of refs) {
         if (ref === "SKILL.md" || ref === "CLAUDE.md") continue;
@@ -126,6 +126,11 @@ describe("skill companion files", () => {
         normalized.add(local);
       }
       for (const ref of normalized) {
+        if (ref === "launch.md" && e.ns === "kit") {
+          expect(existsSync(resolve(KIT_CLAUDE_ROOT, "skills", e.dir, ref)), `${e.key} -> ${ref} (kit-claude)`).toBe(true);
+          expect(existsSync(resolve(KIT_OMP_ROOT, "skills", e.dir, ref)), `${e.key} -> ${ref} (kit-omp)`).toBe(true);
+          continue;
+        }
         expect(existsSync(resolve(e.path, ref)), `${e.key} -> ${ref}`).toBe(true);
       }
     }

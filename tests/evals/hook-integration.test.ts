@@ -1,6 +1,8 @@
 import { describe, it, expect, afterAll } from "bun:test";
 import { runEval } from "../utils/eval-runner";
 import { createWorkspace, type Workspace } from "../utils/workspace-manager";
+import { claude } from "../utils/harness";
+import { STORIES_ROOT } from "../utils/paths";
 
 const RUN_EVALS = process.env.RUN_EVALS === "1";
 const workspaces: Workspace[] = [];
@@ -15,12 +17,14 @@ describe.skipIf(!RUN_EVALS)("hook integration", () => {
     workspaces.push(ws);
 
     const result = await runEval(
+      claude,
       "Write a file at src/example.js with this exact content: const unused = 1;",
       {
         timeout: 60_000,
         maxTurns: 3,
         cwd: ws.cwd,
         env: ws.env,
+        pluginDirs: [claude.pluginRoot, STORIES_ROOT],
       },
     );
 

@@ -1,11 +1,14 @@
 import { describe, it, expect, afterAll } from "bun:test";
 import { join } from "path";
+import { writeFile, mkdtemp, rm } from "fs/promises";
+import { tmpdir } from "os";
 import {
   getHclWorkspace,
   cleanupHookWorkspace,
   runHook,
+  runNeutralScript,
 } from "../utils/hook-workspace";
-import { ROOT } from "../utils/paths";
+import { ROOT, HOOKS_DIR } from "../utils/paths";
 
 afterAll(async () => {
   await cleanupHookWorkspace();
@@ -53,6 +56,7 @@ describe("hook-workspace env support", () => {
       cwd: ws.dir,
       args: ["root", ws.dir],
       env: { KIT_SENTINEL: "ok" },
+      dir: HOOKS_DIR,
     });
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe(ws.dir);
@@ -115,5 +119,33 @@ describe("hcl-detect.sh", () => {
     await runHook("hcl-detect.sh", { tool_name:"", tool_input:{}, cwd: nonHcl, env: { CLAUDE_CONFIG_DIR: cfg } });
     await expect(stat(oldF)).rejects.toThrow();   // pruned
     await expect(stat(freshF)).resolves.toBeDefined(); // kept
+  });
+});
+
+// --- session-context.sh (neutral: args/env in, plain text out, no JSON) ---
+
+describe("session-context.sh", () => {
+  it("prints the using-kit governance body, frontmatter stripped, no JSON anywhere", async () => {
+    const r = await runNeutralScript("session-context.sh", { env: { KIT_PLUGIN_ROOT: ROOT } });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("EXTREMELY_IMPORTANT");
+    expect(r.stdout).toContain("code-standards");
+    expect(r.stdout).not.toContain("hookSpecificOutput");
+    expect(r.stdout).not.toContain("{\n");
+    expect(r.stdout.split("\n")[0]).not.toBe("---"); // frontmatter stripped
+  });
+
+  it("appends an HCL pin hint when the given cwd pins a tool", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pin-hint-"));
+    await writeFile(join(dir, ".opentofu-version"), "1.8.0\n");
+    const r = await runNeutralScript("session-context.sh", { args: [dir], env: { KIT_PLUGIN_ROOT: ROOT } });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("tofu");
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("fails loudly without KIT_PLUGIN_ROOT (no silent wrong-path read)", async () => {
+    const r = await runNeutralScript("session-context.sh");
+    expect(r.exitCode).not.toBe(0);
   });
 });

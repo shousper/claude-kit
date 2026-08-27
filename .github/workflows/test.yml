@@ -23,4 +23,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: npm install -g @anthropic-ai/claude-code
-      - run: claude plugin validate plugins/kit --strict && claude plugin validate plugins/stories --strict
+      # kit-claude symlinks shared/{skills,hooks,agents,commands} into the plugin tree.
+      # The validator does not follow symlinks and emits a warning per symlinked
+      # component dir; --strict promotes those warnings to hard failures even though
+      # the validator's own message confirms a real session does follow the link.
+      # Do not add --strict back to this one without first resolving the symlinks.
+      - run: claude plugin validate plugins/kit-claude
+      - run: claude plugin validate plugins/stories --strict
+      # kit-omp is an OMP-only plugin (no .claude-plugin manifest) — Claude Code has
+      # nothing to validate here. It is validated by this repo's own static tests
+      # instead: plugin.test.ts, symlink-integrity.test.ts, omp-extension.test.ts, and
+      # omp-workflows.test.ts.

@@ -1,7 +1,7 @@
 import { mkdtemp, writeFile, mkdir, rm, realpath, chmod } from "fs/promises";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { HOOKS_DIR } from "./paths";
+import { HOOKS_DIR, KIT_CLAUDE_HOOKS_DIR } from "./paths";
 
 export interface HookWorkspace {
   dir: string;
@@ -116,6 +116,8 @@ export interface HookInput {
   stop_hook_active?: boolean;       // forwarded to the hook; defaults to false
   args?: string[];                  // appended as argv to the script
   env?: Record<string, string>;     // merged over process.env
+  dir?: string;                     // hooks dir to resolve scriptName against; defaults to the
+                                     // kit-claude protocol wrappers (KIT_CLAUDE_HOOKS_DIR)
 }
 
 export interface HookResult {
@@ -124,11 +126,14 @@ export interface HookResult {
   stderr: string;
 }
 
+/** Runs a Claude-protocol hook script (or, with `dir: HOOKS_DIR`, a neutral shared
+ *  script that happens to ignore stdin): pipes the Claude hook-event JSON envelope
+ *  on stdin, same as the real harness. */
 export async function runHook(
   scriptName: string,
   input: HookInput,
 ): Promise<HookResult> {
-  const scriptPath = resolve(HOOKS_DIR, scriptName);
+  const scriptPath = resolve(input.dir ?? KIT_CLAUDE_HOOKS_DIR, scriptName);
   const json = JSON.stringify({
     session_id: input.session_id ?? "test-session",
     agent_id: input.agent_id,
@@ -145,6 +150,30 @@ export async function runHook(
     stderr: "pipe",
     cwd: input.cwd,
     env: { ...process.env, ...(input.env ?? {}) },
+  });
+
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+
+  return { exitCode: await proc.exited, stdout, stderr };
+}
+
+/** Runs a neutral shared/hooks script directly: plain argv/env in, no stdin, no
+ *  JSON envelope — the harness-agnostic contract. Resolves against HOOKS_DIR
+ *  (shared/hooks) unless `dir` overrides it. */
+export async function runNeutralScript(
+  scriptName: string,
+  opts: { args?: string[]; cwd?: string; env?: Record<string, string>; dir?: string } = {},
+): Promise<HookResult> {
+  const scriptPath = resolve(opts.dir ?? HOOKS_DIR, scriptName);
+  const bash = Bun.which("bash") ?? "bash";
+  const proc = Bun.spawn([bash, scriptPath, ...(opts.args ?? [])], {
+    stdout: "pipe",
+    stderr: "pipe",
+    cwd: opts.cwd ?? process.cwd(),
+    env: { ...process.env, ...(opts.env ?? {}) },
   });
 
   const [stdout, stderr] = await Promise.all([
