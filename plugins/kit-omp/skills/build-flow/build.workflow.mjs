@@ -1,6 +1,6 @@
 export const meta = {
   name: 'build-flow-batch-runner-omp',
-  description: 'Executes an implementation plan batch-by-batch (implement sequentially, then parallel spec+quality review with a staged fix-loop and scoped re-checks), ending with a full-suite verification. Returns done or blocked; never commits. OMP-native: stage agents (kit-worker, kit-arbiter, kit-verifier) are selected inline instead of by per-call model/effort.',
+  description: 'Executes an implementation plan batch-by-batch (implement sequentially, then parallel spec+quality review with a staged fix-loop and scoped re-checks), ending with a full-suite verification. Returns done or blocked; never commits, never throws, never hangs: every stage is bounded by a timeout and journaled for resume. OMP-native: stage agents (kit-worker, kit-arbiter, kit-verifier) are selected inline.',
   phases: [
     { title: 'Implement' },
     { title: 'Review' },
@@ -9,16 +9,24 @@ export const meta = {
   ],
 }
 
-// host: { agent, parallel, phase, log } — OMP's eval-kernel bridges, passed in by the
-// caller (see launch.md). `agent(prompt, opts)` accepts ONLY { agent, label, schema } — OMP
-// has no per-call model/effort, so stage selection below resolves to a fixed agent name.
+// Host bridges. The OMP eval kernel installs agent/read/write/log/phase as globals of its
+// worker VM, and a dynamically imported module sees them, so run() binds them itself: the
+// launching cell passes the args object and nothing else. The optional second parameter
+// overrides individual bridges (tests use it; a launch never should).
+//
+// agent(prompt, { agent, label, schema }) returns a handle immediately; the result comes
+// from `await handle.wait({ timeout })` (timeout in SECONDS, inside an options object — a
+// bare number is silently ignored), and a failed, off-schema, or cancelled agent makes
+// wait() reject. There is no parallel(): concurrency is Promise.all over stages.
 
 // args: {
+//   slug: string,                // run name; journal at local://build-flow/<slug>.state.json (no slug = no journal)
 //   batches: [ [ { id, title, prompt }, ... ], ... ], // dependency-ordered; tasks within a batch are independent
 //   ledger: { decisions: string[], conventions: string[], deviations: string[] },
-//   startBatch: number,   // resume point after a blocker (default 0)
-//   maxFixRounds: number, // default 3
-//   worktree: string,     // absolute worktree path; stamped into every agent prompt
+//   startBatch: number,          // resume point after a blocker (default 0)
+//   maxFixRounds: number,        // default 3
+//   stageTimeoutMinutes: number, // default 60; a stage still running after this is cancelled and the run blocks
+//   worktree: string,            // absolute worktree path; stamped into every agent prompt
 // }
 
 // Stage -> OMP agent. kit-worker carries the default implement/spec/quality/fix/recheck
@@ -29,8 +37,43 @@ const WORKER = 'kit-worker'
 const ARBITER = 'kit-arbiter'
 const VERIFIER = 'kit-verifier'
 
-export async function run(host, args) {
-  const { agent, parallel, phase, log } = host
+const emptyLedger = () => ({ decisions: [], conventions: [], deviations: [] })
+const errorText = (e) => (e && e.message ? e.message : String(e))
+
+function bindHost(override) {
+  const pick = (name) => (override && override[name] !== undefined ? override[name] : globalThis[name])
+  return {
+    agent: pick('agent'),
+    read: pick('read'),
+    write: pick('write'),
+    phase: pick('phase') ?? (() => {}),
+    log: pick('log') ?? (() => {}),
+  }
+}
+
+export async function run(args, hostOverride) {
+  // The previous contract was run(host, args). A caller still passing bridges first gets a
+  // loud block, not a run against a host shape the kernel no longer provides.
+  if (args && typeof args.agent === 'function') {
+    return {
+      status: 'blocked',
+      blockedAtBatch: 0,
+      reason: "build-flow runner: run() takes ONE argument, the args object. The eval kernel's agent/read/write/log/phase globals are bound by the module itself — call run(args) and never pass a host object.",
+      ledger: emptyLedger(),
+      results: [],
+    }
+  }
+  const host = bindHost(hostOverride)
+  if (typeof host.agent !== 'function') {
+    return {
+      status: 'blocked',
+      blockedAtBatch: 0,
+      reason: 'build-flow runner: no agent() global — this module must run from an OMP eval cell (language: js), where the kernel installs agent(); it cannot run under bash, node, or bun.',
+      ledger: emptyLedger(),
+      results: [],
+    }
+  }
+  const { agent, read, write, phase, log } = host
 
   // `args` SHOULD be a structured object. Callers sometimes pass a JSON-encoded string by
   // mistake, which makes `args.batches` undefined and the whole run a silent no-op —
@@ -44,12 +87,16 @@ export async function run(host, args) {
         status: 'blocked',
         blockedAtBatch: 0,
         reason: `build-flow runner: args arrived as a string that is not valid JSON (${e.message}). Pass args as a structured object, not a JSON-encoded string.`,
-        ledger: { decisions: [], conventions: [], deviations: [] },
+        ledger: emptyLedger(),
         results: [],
       }
     }
   }
   const MAX_FIX_ROUNDS = a.maxFixRounds ?? 3
+  const STAGE_TIMEOUT_MINUTES = Number.isFinite(a.stageTimeoutMinutes) && a.stageTimeoutMinutes > 0 ? a.stageTimeoutMinutes : 60
+  const STAGE_TIMEOUT_SECONDS = Math.round(STAGE_TIMEOUT_MINUTES * 60)
+  const SLUG = typeof a.slug === 'string' && /^[A-Za-z0-9._-]+$/.test(a.slug) ? a.slug : null
+  const JOURNAL_PATH = SLUG ? `local://build-flow/${SLUG}.state.json` : null
   // Agents inherit the SESSION shell's cwd — not the path the orchestrator had in mind. A
   // launch from the wrong directory split-brains the run (some agents edit the main
   // checkout, reviewers see "no implementation", fixes land in the orphaned copy). When the
@@ -58,7 +105,7 @@ export async function run(host, args) {
   const wtHeader = WT
     ? `## Worktree\nALL work happens in ${WT} — run \`cd ${WT}\` FIRST. Every file you read or edit lives under this path; if your shell is anywhere else, you are in the wrong checkout of this repo.\n\n`
     : ''
-  const ledger = a.ledger ?? { decisions: [], conventions: [], deviations: [] }
+  const ledger = a.ledger ?? emptyLedger()
   const startBatch = a.startBatch ?? 0
   const batches = a.batches ?? []
   const results = []
@@ -88,6 +135,82 @@ export async function run(host, args) {
       ledger,
       results,
     }
+  }
+  const VERIFY_BATCH = batches.length // journal batch index for the verify phase: after every real batch
+
+  // Journal: every finished stage's result, keyed by label, so a relaunch with the same
+  // slug replays finished stages instead of re-spawning them. A crash, a cancelled job, or
+  // an aborted cell loses nothing that already settled. A `blocked` return drops the
+  // blocked batch's entries (and everything after it) so the relaunch re-runs exactly what
+  // the human resolved; a run that ended `done` is never replayed.
+  const journal = { status: 'running', nextBatch: startBatch, stages: {} }
+  if (JOURNAL_PATH && typeof read === 'function') {
+    try {
+      const prior = JSON.parse(await read(JOURNAL_PATH))
+      if (prior && prior.status !== 'done' && prior.stages && typeof prior.stages === 'object') journal.stages = prior.stages
+    } catch {
+      // first run, or unreadable: start fresh
+    }
+  }
+  const saveJournal = async () => {
+    if (!JOURNAL_PATH || typeof write !== 'function') return
+    try {
+      await write(JOURNAL_PATH, JSON.stringify({ slug: SLUG, status: journal.status, nextBatch: journal.nextBatch, ledger, results, stages: journal.stages }, null, 2))
+    } catch (e) {
+      log(`journal write failed (${errorText(e)}); continuing without resume support`)
+    }
+  }
+  const replayable = Object.keys(journal.stages).length
+  if (replayable > 0) log(`Journal ${JOURNAL_PATH}: ${replayable} finished stage(s) will replay`)
+
+  // stage(): spawn one agent, wait for it, journal the result. Never throws — a rejected
+  // wait (agent failed, off-schema output, cancelled) or a stage timeout becomes
+  // { ok: false } naming the agent id, and the caller turns that into a `blocked` return.
+  // The label becomes the agent id (so `history://<id>` reaches the transcript); labels use
+  // hyphens because ':' is the read-selector separator in agent:// URLs.
+  const stage = async (batchIndex, label, prompt, opts) => {
+    const prior = journal.stages[label]
+    if (prior && typeof prior === 'object' && 'value' in prior) {
+      log(`${label}: replaying journaled result`)
+      return { ok: true, value: prior.value }
+    }
+    let handle
+    try {
+      handle = await agent(prompt, { ...opts, label })
+    } catch (e) {
+      return { ok: false, id: label, error: `spawn failed: ${errorText(e)}` }
+    }
+    const id = handle && handle.id ? handle.id : label
+    try {
+      const value = await handle.wait({ timeout: STAGE_TIMEOUT_SECONDS })
+      journal.stages[label] = { batch: batchIndex, value: value ?? null }
+      await saveJournal()
+      return { ok: true, value }
+    } catch (e) {
+      try {
+        await handle.cancel()
+      } catch {
+        // already settled
+      }
+      const timedOut = e && e.name === 'TimeoutError'
+      return { ok: false, id, error: timedOut ? `still running after ${STAGE_TIMEOUT_MINUTES} min (cancelled)` : errorText(e) }
+    }
+  }
+  const stageFailure = (r) =>
+    `stage agent ${r.id} did not complete: ${r.error}. Read history://${r.id}, then relaunch with the same args and slug — finished stages replay from the journal.`
+  const blocked = async (blockedAtBatch, dropFromBatch, reason, extra) => {
+    for (const [label, entry] of Object.entries(journal.stages)) {
+      if (!entry || typeof entry.batch !== 'number' || entry.batch >= dropFromBatch) delete journal.stages[label]
+    }
+    journal.status = 'blocked'
+    await saveJournal()
+    return { status: 'blocked', blockedAtBatch, reason, ledger, results, ...(extra ?? {}) }
+  }
+  const actionable = (fs) => fs.filter((f) => f && (f.severity === 'critical' || f.severity === 'important'))
+  // A relaunch that both replays a batch from the journal AND carries the ledger returned by
+  // the blocked run would record that batch's decision twice; skip exact repeats.
+  const decide = (decision) => {
+    if (!ledger.decisions.includes(decision)) ledger.decisions.push(decision)
   }
 
   const IMPL_SCHEMA = {
@@ -245,16 +368,16 @@ If a failure is pre-existing on the base branch or needs an unplanned decision, 
 
   for (let b = startBatch; b < batches.length; b++) {
     const batch = batches[b]
+    const n = b + 1
     phase('Implement')
-    log(`Batch ${b + 1}/${batches.length}: implementing ${batch.length} task(s)`)
+    log(`Batch ${n}/${batches.length}: implementing ${batch.length} task(s)`)
 
     // Implement sequentially within a batch (parallel file-writers would need worktree isolation — deferred).
     for (const task of batch) {
-      const r = await agent(implPrompt(task), { agent: WORKER, label: `impl:${task.id}`, schema: IMPL_SCHEMA })
-      if (r && r.needsHumanInput) {
-        return { status: 'blocked', blockedAtBatch: b, reason: r.needsHumanInput.reason, ledger, results }
-      }
-      if (r) results.push({ batch: b, task: task.id, ...r })
+      const r = await stage(b, `impl-${task.id}`, implPrompt(task), { agent: WORKER, schema: IMPL_SCHEMA })
+      if (!r.ok) return blocked(b, b, stageFailure(r))
+      if (r.value && r.value.needsHumanInput) return blocked(b, b, r.value.needsHumanInput.reason)
+      if (r.value) results.push({ batch: b, task: task.id, ...r.value })
     }
 
     // Review gate: ONE full spec+quality review per batch, then a staged fix-loop
@@ -263,54 +386,63 @@ If a failure is pre-existing on the base branch or needs an unplanned decision, 
     // implementation 2:1 was the single largest measured token sink).
     phase('Review')
     const finalBatch = b === batches.length - 1
-    const [spec, quality] = await parallel([
-      () => agent(specPrompt(batch), { agent: WORKER, label: `spec:b${b + 1}`, schema: REVIEW_SCHEMA }),
+    const [spec, quality] = await Promise.all([
+      stage(b, `spec-b${n}`, specPrompt(batch), { agent: WORKER, schema: REVIEW_SCHEMA }),
       // The final batch's `git diff main` covers the whole run, so its quality review
       // escalates to kit-arbiter as the run-level safety net.
-      () => agent(qualityPrompt(batch), { agent: finalBatch ? ARBITER : WORKER, label: `quality:b${b + 1}`, schema: REVIEW_SCHEMA }),
+      stage(b, `quality-b${n}`, qualityPrompt(batch), { agent: finalBatch ? ARBITER : WORKER, schema: REVIEW_SCHEMA }),
     ])
-    let findings = [...(spec?.findings ?? []), ...(quality?.findings ?? [])]
-      .filter((f) => f.severity === 'critical' || f.severity === 'important')
+    for (const r of [spec, quality]) if (!r.ok) return blocked(b, b, stageFailure(r))
+    let findings = actionable([...(spec.value?.findings ?? []), ...(quality.value?.findings ?? [])])
     let round = 0
     while (findings.length > 0) {
       if (round >= MAX_FIX_ROUNDS) {
-        return { status: 'blocked', blockedAtBatch: b, reason: `Review unresolved after ${MAX_FIX_ROUNDS} fix round(s)`, findings, ledger, results }
+        return blocked(b, b, `Review unresolved after ${MAX_FIX_ROUNDS} fix round(s)`, { findings })
       }
       phase('Fix')
       const fixAgent = round < MAX_FIX_ROUNDS - 1 ? WORKER : ARBITER // staged escalation
-      log(`Batch ${b + 1} fix round ${round + 1} (${fixAgent}): ${findings.length} finding(s)`)
-      const fix = await agent(fixPrompt(batch, findings), { agent: fixAgent, label: `fix:b${b + 1}:r${round + 1}`, schema: IMPL_SCHEMA })
-      if (fix && fix.needsHumanInput) {
-        return { status: 'blocked', blockedAtBatch: b, reason: fix.needsHumanInput.reason, findings, ledger, results }
-      }
+      log(`Batch ${n} fix round ${round + 1} (${fixAgent}): ${findings.length} finding(s)`)
+      const fix = await stage(b, `fix-b${n}-r${round + 1}`, fixPrompt(batch, findings), { agent: fixAgent, schema: IMPL_SCHEMA })
+      if (!fix.ok) return blocked(b, b, stageFailure(fix), { findings })
+      if (fix.value && fix.value.needsHumanInput) return blocked(b, b, fix.value.needsHumanInput.reason, { findings })
       round++
-      const recheck = await agent(recheckPrompt(batch, findings), { agent: WORKER, label: `recheck:b${b + 1}:r${round}`, schema: REVIEW_SCHEMA })
-      findings = (recheck?.findings ?? []).filter((f) => f.severity === 'critical' || f.severity === 'important')
+      const recheck = await stage(b, `recheck-b${n}-r${round}`, recheckPrompt(batch, findings), { agent: WORKER, schema: REVIEW_SCHEMA })
+      if (!recheck.ok) return blocked(b, b, stageFailure(recheck), { findings })
+      findings = actionable(recheck.value?.findings ?? [])
     }
 
-    ledger.decisions.push(`Batch ${b + 1} (${batch.map((t) => t.id).join(', ')}) implemented and reviewed clean.`)
-    log(`Batch ${b + 1} complete.`)
+    decide(`Batch ${n} (${batch.map((t) => t.id).join(', ')}) implemented and reviewed clean.`)
+    journal.nextBatch = b + 1
+    await saveJournal()
+    log(`Batch ${n} complete.`)
   }
 
   // Final verification: the ONE place the full suite + linter run. Batch agents
   // run only task-scoped tests, and the structured summary keeps raw test output
-  // out of the orchestrator's context entirely.
+  // out of the orchestrator's context entirely. A block here drops only the verify
+  // phase from the journal, so the relaunch replays every batch and re-verifies.
   phase('Verify')
   let verification = null
   for (let v = 0; ; v++) {
-    verification = await agent(verifyPrompt(), { agent: VERIFIER, label: `verify:r${v + 1}`, schema: VERIFY_SCHEMA })
+    const ver = await stage(VERIFY_BATCH, `verify-r${v + 1}`, verifyPrompt(), { agent: VERIFIER, schema: VERIFY_SCHEMA })
+    if (!ver.ok) return blocked(VERIFY_BATCH - 1, VERIFY_BATCH, stageFailure(ver))
+    verification = ver.value
     if (!verification || verification.passed) break
     if (v >= 2) {
-      return { status: 'blocked', blockedAtBatch: batches.length - 1, reason: `Final verification still failing after ${v} fix round(s): ${verification.summary}`, findings: verification.failures, ledger, results }
+      return blocked(VERIFY_BATCH - 1, VERIFY_BATCH, `Final verification still failing after ${v} fix round(s): ${verification.summary}`, { findings: verification.failures })
     }
     log(`Final verification failed (${verification.failures?.length ?? 0} failure(s)) — fix round ${v + 1}`)
     const fixAgent = v === 0 ? WORKER : ARBITER // staged escalation
-    const fix = await agent(verifyFixPrompt(verification), { agent: fixAgent, label: `verify-fix:r${v + 1}`, schema: IMPL_SCHEMA })
-    if (fix && fix.needsHumanInput) {
-      return { status: 'blocked', blockedAtBatch: batches.length - 1, reason: fix.needsHumanInput.reason, findings: verification.failures, ledger, results }
+    const fix = await stage(VERIFY_BATCH, `verify-fix-r${v + 1}`, verifyFixPrompt(verification), { agent: fixAgent, schema: IMPL_SCHEMA })
+    if (!fix.ok) return blocked(VERIFY_BATCH - 1, VERIFY_BATCH, stageFailure(fix), { findings: verification.failures })
+    if (fix.value && fix.value.needsHumanInput) {
+      return blocked(VERIFY_BATCH - 1, VERIFY_BATCH, fix.value.needsHumanInput.reason, { findings: verification.failures })
     }
   }
-  ledger.decisions.push(`Final verification: ${verification ? verification.summary : 'verifier returned no result'}`)
+  decide(`Final verification: ${verification ? verification.summary : 'verifier returned no result'}`)
+  journal.status = 'done'
+  journal.nextBatch = VERIFY_BATCH
+  await saveJournal()
 
   return { status: 'done', results, ledger, verification }
 }

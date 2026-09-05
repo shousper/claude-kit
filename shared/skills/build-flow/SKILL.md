@@ -27,8 +27,8 @@ Markdown stays the human format — you parse it into structure at runtime.
 1. **Worktree.** Ensure you are in an isolated worktree (kit:git-worktrees). Never build on main without explicit consent.
 2. **Parse the plan into batches.** Extract tasks (id, title, full prompt text, dependencies). Group into dependency-ordered batches where tasks within a batch are independent (topological layers). Default batch size ~3; smaller for large/complex tasks. Carry each task's FULL text — do not make agents re-read the plan file.
 3. **Seed the ledger.** `{ decisions: [], conventions: [], deviations: [] }` — the compact cross-batch record that replaces persistent reviewer memory.
-4. **Locate the workflow.** This skill is loaded with its base directory. The runner is `<base>/build.workflow.js`.
-5. **Launch one workflow per run segment, in the background.** Read `launch.md` in this skill's directory for your harness's exact launch mechanics.
+4. **Locate the workflow.** This skill is loaded with its base directory; the runner is the `build.workflow` module beside this file. `launch.md` names its exact filename and how to resolve `<base>` on your harness.
+5. **Launch one workflow per run segment.** Read `launch.md` in this skill's directory for your harness's exact launch mechanics, including whether the launch call returns immediately or holds your turn until the run finishes, and how to stop and resume.
    - Every task carries its FULL `prompt` text — agents never re-read the plan. Never abbreviate or summarize a prompt to shrink the call.
    - **Always pass `worktree` AND `cd` into it in your session shell immediately before launching (verify with `pwd`).** The workflow's agents inherit the shell's cwd — not the path you had in mind. A wrong cwd split-brains the run across checkouts: some agents edit the main tree, reviewers report "no implementation", fixes land in the orphaned copy. After the run, `git status --porcelain` on the MAIN checkout must show no source changes — anything else means a split brain: port stray fixes into the worktree, then restore main.
    - **Sanity-check the launch.** A real run spawns agents and takes seconds-to-minutes. An almost-instant `blocked` with a "no batches" reason means an empty or truncated payload — fix the args and relaunch; never report a no-op as success.
@@ -60,7 +60,7 @@ Planning (kit:brainstorming, kit:writing-plans) runs in the main session — run
 
 ## Interruptibility
 
-Background execution keeps this session live — watch progress and interject anytime. `launch.md` in this skill's directory covers exactly how to stop and resume a running workflow. Small batches keep work-at-risk low.
+`launch.md` in this skill's directory says whether a run holds your turn or runs in the background on your harness, how to watch its progress, and exactly how to stop and resume it. Small batches keep work-at-risk low.
 
 When re-reading a completed run later — in a resumed session, or from a saved output — extract the runner's return as described in `launch.md`.
 
@@ -105,10 +105,12 @@ Invocable either way. The only difference is a reminder: if continuing in a long
 - Insert routine pauses — drive until done or genuinely blocked.
 - Make agents re-read the plan file — pass full task text via `args`.
 - Drop the ledger between segments — cross-batch awareness depends on it.
-- Re-author the workflow inline when the bundled `build.workflow.js` exists.
+- Re-author the workflow inline when the bundled `build.workflow` module exists.
 - Truncate, summarize, or abbreviate the batch payload — incompleteness is what makes the runner block loudly, not run a silent partial batch. See your harness's launch doc for its exact failure mode.
 - Treat an instant `blocked` return with no agents / empty `results` as success — that's a malformed or empty payload; fix the args and relaunch.
 - Patch the runner to work around a no-op launch — fix the payload first; the runner blocks loudly to point you there.
+- Leave the launch call's promise dangling — stash it, poll it, or return before it settles. A run you are not awaiting cannot deliver its result on every harness; `launch.md` shows the one shape that does.
+- Drive the stages yourself with raw subagent calls when the bundled runner exists. The runner owns the review gate, the fix loop, and the model tiering; a hand-driven pipeline has none of them.
 
 ## Integration
 
@@ -118,5 +120,5 @@ Invocable either way. The only difference is a reminder: if continuing in a long
 - **kit:finish-branch** — Complete development after approval.
 - **kit:brainstorming** — Re-entry for design changes.
 - **kit:tdd** — The workflow's implementer agents follow TDD.
-- `./build.workflow.js` — The bundled batch runner this skill launches.
+- The bundled `build.workflow` module beside this file — the batch runner this skill launches (`launch.md` names its exact filename).
 - `launch.md` — harness-specific launch mechanics, read on demand.
