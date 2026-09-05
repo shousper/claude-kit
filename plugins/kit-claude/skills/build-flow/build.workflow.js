@@ -77,6 +77,19 @@ if (badBatch !== -1) {
   }
 }
 
+// stage(): spawn one agent and classify its result. The Workflow runtime resolves agent()
+// to null when the agent was stopped in /workflows or hit an unrecoverable API error; that
+// must become a `blocked` return naming the agent, never an empty result that reads as "no
+// findings" or "no failures" and lets the run report a fake `done`.
+const stage = async (label, prompt, opts) => {
+  const value = await agent(prompt, { ...opts, label })
+  return value == null ? { ok: false, label } : { ok: true, value }
+}
+const stageFailure = (r) =>
+  `stage agent ${r.label} did not complete (stopped in /workflows, or an unrecoverable API error). Check the run in /workflows, fix the cause, then relaunch with resumeFromRunId and the SAME args — completed agents replay from cache and this one runs again.`
+const blocked = (blockedAtBatch, reason, extra) => ({ status: 'blocked', blockedAtBatch, reason, ledger, results, ...(extra ?? {}) })
+const actionable = (fs) => fs.filter((f) => f && (f.severity === 'critical' || f.severity === 'important'))
+
 const IMPL_SCHEMA = {
   type: 'object',
   required: ['summary', 'filesTouched', 'testsPassed'],
@@ -237,14 +250,10 @@ for (let b = startBatch; b < batches.length; b++) {
 
   // Implement sequentially within a batch (parallel file-writers would need worktree isolation — deferred).
   for (const task of batch) {
-    const r = await agent(implPrompt(task), {
-      label: `impl:${task.id}`, phase: 'Implement',
-      model: 'sonnet', effort: 'high', schema: IMPL_SCHEMA,
-    })
-    if (r && r.needsHumanInput) {
-      return { status: 'blocked', blockedAtBatch: b, reason: r.needsHumanInput.reason, ledger, results }
-    }
-    if (r) results.push({ batch: b, task: task.id, ...r })
+    const r = await stage(`impl:${task.id}`, implPrompt(task), { phase: 'Implement', model: 'sonnet', effort: 'high', schema: IMPL_SCHEMA })
+    if (!r.ok) return blocked(b, stageFailure(r))
+    if (r.value.needsHumanInput) return blocked(b, r.value.needsHumanInput.reason)
+    results.push({ batch: b, task: task.id, ...r.value })
   }
 
   // Review gate: ONE full spec+quality review per batch, then a staged fix-loop
@@ -254,31 +263,30 @@ for (let b = startBatch; b < batches.length; b++) {
   phase('Review')
   const finalBatch = b === batches.length - 1
   const [spec, quality] = await parallel([
-    () => agent(specPrompt(batch), { label: `spec:b${b + 1}`, phase: 'Review', model: 'sonnet', effort: 'high', schema: REVIEW_SCHEMA }),
+    () => stage(`spec:b${b + 1}`, specPrompt(batch), { phase: 'Review', model: 'sonnet', effort: 'high', schema: REVIEW_SCHEMA }),
     // Quality reviews run on Sonnet; the final batch escalates to Opus — its
     // `git diff main` covers the whole run, so this is the run-level safety net.
-    () => agent(qualityPrompt(batch), {
-      label: `quality:b${b + 1}`, phase: 'Review',
-      model: finalBatch ? 'opus' : 'sonnet', effort: finalBatch ? 'xhigh' : 'high', schema: REVIEW_SCHEMA,
+    () => stage(`quality:b${b + 1}`, qualityPrompt(batch), {
+      phase: 'Review', model: finalBatch ? 'opus' : 'sonnet', effort: finalBatch ? 'xhigh' : 'high', schema: REVIEW_SCHEMA,
     }),
   ])
-  let findings = [...(spec?.findings ?? []), ...(quality?.findings ?? [])]
-    .filter((f) => f.severity === 'critical' || f.severity === 'important')
+  for (const r of [spec, quality]) if (!r.ok) return blocked(b, stageFailure(r))
+  let findings = actionable([...(spec.value.findings ?? []), ...(quality.value.findings ?? [])])
   let round = 0
   while (findings.length > 0) {
     if (round >= MAX_FIX_ROUNDS) {
-      return { status: 'blocked', blockedAtBatch: b, reason: `Review unresolved after ${MAX_FIX_ROUNDS} fix round(s)`, findings, ledger, results }
+      return blocked(b, `Review unresolved after ${MAX_FIX_ROUNDS} fix round(s)`, { findings })
     }
     phase('Fix')
     const fixModel = round < MAX_FIX_ROUNDS - 1 ? 'sonnet' : 'opus' // staged escalation
     log(`Batch ${b + 1} fix round ${round + 1} (${fixModel}): ${findings.length} finding(s)`)
-    const fix = await agent(fixPrompt(batch, findings), { label: `fix:b${b + 1}:r${round + 1}`, phase: 'Fix', model: fixModel, effort: 'high', schema: IMPL_SCHEMA })
-    if (fix && fix.needsHumanInput) {
-      return { status: 'blocked', blockedAtBatch: b, reason: fix.needsHumanInput.reason, findings, ledger, results }
-    }
+    const fix = await stage(`fix:b${b + 1}:r${round + 1}`, fixPrompt(batch, findings), { phase: 'Fix', model: fixModel, effort: 'high', schema: IMPL_SCHEMA })
+    if (!fix.ok) return blocked(b, stageFailure(fix), { findings })
+    if (fix.value.needsHumanInput) return blocked(b, fix.value.needsHumanInput.reason, { findings })
     round++
-    const recheck = await agent(recheckPrompt(batch, findings), { label: `recheck:b${b + 1}:r${round}`, phase: 'Review', model: 'sonnet', effort: 'high', schema: REVIEW_SCHEMA })
-    findings = (recheck?.findings ?? []).filter((f) => f.severity === 'critical' || f.severity === 'important')
+    const recheck = await stage(`recheck:b${b + 1}:r${round}`, recheckPrompt(batch, findings), { phase: 'Review', model: 'sonnet', effort: 'high', schema: REVIEW_SCHEMA })
+    if (!recheck.ok) return blocked(b, stageFailure(recheck), { findings })
+    findings = actionable(recheck.value.findings ?? [])
   }
 
   ledger.decisions.push(`Batch ${b + 1} (${batch.map((t) => t.id).join(', ')}) implemented and reviewed clean.`)
@@ -291,17 +299,18 @@ for (let b = startBatch; b < batches.length; b++) {
 phase('Verify')
 let verification = null
 for (let v = 0; ; v++) {
-  verification = await agent(verifyPrompt(), { label: `verify:r${v + 1}`, phase: 'Verify', model: 'sonnet', effort: 'low', schema: VERIFY_SCHEMA })
-  if (!verification || verification.passed) break
+  const ver = await stage(`verify:r${v + 1}`, verifyPrompt(), { phase: 'Verify', model: 'sonnet', effort: 'low', schema: VERIFY_SCHEMA })
+  if (!ver.ok) return blocked(batches.length - 1, stageFailure(ver))
+  verification = ver.value
+  if (verification.passed) break
   if (v >= 2) {
-    return { status: 'blocked', blockedAtBatch: batches.length - 1, reason: `Final verification still failing after ${v} fix round(s): ${verification.summary}`, findings: verification.failures, ledger, results }
+    return blocked(batches.length - 1, `Final verification still failing after ${v} fix round(s): ${verification.summary}`, { findings: verification.failures })
   }
   log(`Final verification failed (${verification.failures?.length ?? 0} failure(s)) — fix round ${v + 1}`)
-  const fix = await agent(verifyFixPrompt(verification), { label: `verify-fix:r${v + 1}`, phase: 'Verify', model: v === 0 ? 'sonnet' : 'opus', effort: 'high', schema: IMPL_SCHEMA })
-  if (fix && fix.needsHumanInput) {
-    return { status: 'blocked', blockedAtBatch: batches.length - 1, reason: fix.needsHumanInput.reason, findings: verification.failures, ledger, results }
-  }
+  const fix = await stage(`verify-fix:r${v + 1}`, verifyFixPrompt(verification), { phase: 'Verify', model: v === 0 ? 'sonnet' : 'opus', effort: 'high', schema: IMPL_SCHEMA })
+  if (!fix.ok) return blocked(batches.length - 1, stageFailure(fix), { findings: verification.failures })
+  if (fix.value.needsHumanInput) return blocked(batches.length - 1, fix.value.needsHumanInput.reason, { findings: verification.failures })
 }
-ledger.decisions.push(`Final verification: ${verification ? verification.summary : 'verifier returned no result'}`)
+ledger.decisions.push(`Final verification: ${verification.summary}`)
 
 return { status: 'done', results, ledger, verification }

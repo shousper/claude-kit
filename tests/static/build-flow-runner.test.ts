@@ -302,3 +302,55 @@ describe("build-flow runner execution flow", () => {
     expect(r.reason).toMatch(/array/i);
   });
 });
+
+// The Workflow runtime resolves agent() to null when the agent was stopped in /workflows or
+// hit an unrecoverable API error. Every stage must turn that into `blocked` naming the agent;
+// reading null as "no findings" / "no failures" is the silent fake-done this file exists to
+// prevent. One row per distinct call site (sequential impl, the parallel review pair, both
+// fix-loop stages, both verify-loop stages).
+describe("build-flow runner: a null agent() result blocks instead of passing", () => {
+  const dirty = { approved: false, findings: [{ severity: "critical", issue: "x" }] };
+  const failing = { passed: false, summary: "1 failing", failures: [{ check: "t1", detail: "x != y" }] };
+  // Drive every stage: spec dirty -> fix -> recheck clean; verify fails once -> verify-fix -> verify ok.
+  const full: Respond = (role, ctx) =>
+    role === "spec" ? dirty
+    : role === "verify" ? (ctx.occurrence === 0 ? failing : verified)
+    : allClean(role, ctx);
+
+  it.each([
+    ["impl", "impl:b"],
+    ["quality", "quality:b1"],
+    ["fix", "fix:b1:r1"],
+    ["recheck", "recheck:b1:r1"],
+    ["verify", "verify:r1"],
+    ["verify-fix", "verify-fix:r1"],
+  ] as Array<[Role, string]>)("%s returning null blocks naming %s", async (nullRole, label) => {
+    const r = await runFlow({ batches: [[task("a"), task("b")]] }, (role, ctx) => {
+      if (role !== nullRole) return full(role, ctx);
+      // For impl, only the SECOND task dies, proving the first task's result is kept.
+      return nullRole === "impl" && !ctx.prompt.includes("TASKMARK:b") ? impl : null;
+    });
+
+    expect(r.status).toBe("blocked");
+    expect(r.blockedAtBatch).toBe(0);
+    expect(r.reason).toContain(label);
+    expect(r.reason).toMatch(/did not complete/i);
+    expect(r.ledger).toBeDefined();
+  });
+
+  it("keeps the finished task's result and spawns no reviewer when an implementer dies", async () => {
+    const r = await runFlow({ batches: [[task("a"), task("b")]] }, (role, ctx) =>
+      role === "impl" ? (ctx.prompt.includes("TASKMARK:b") ? null : impl) : allClean(role, ctx),
+    );
+    expect(r.status).toBe("blocked");
+    expect(r.results).toHaveLength(1);
+    expect(r.calls.map((c) => c.role)).toEqual(["impl", "impl"]);
+  });
+
+  it("never reports done when the verifier dies, even with every batch clean", async () => {
+    const r = await runFlow({ batches: [[task("a")]] }, (role, ctx) => (role === "verify" ? null : allClean(role, ctx)));
+    expect(r.status).toBe("blocked");
+    expect((r as Run & { verification?: unknown }).verification).toBeUndefined();
+    expect(r.ledger?.decisions.some((d) => /verifier returned no result/i.test(d))).toBe(false);
+  });
+});

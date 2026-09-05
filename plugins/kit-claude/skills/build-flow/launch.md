@@ -38,9 +38,11 @@ The completion payload (task notification, `TaskOutput`, or a saved output file)
 
 When re-reading a completed run later — after a usage-limit interruption, in a resumed session, via `TaskOutput`, or from a saved output file — the same envelope applies: the runner's return is under `.result`, and the top level is harness metadata. Extract from `.result` on the first attempt.
 
+A `blocked` whose `reason` starts `stage agent impl:T3 did not complete` means that agent was stopped in `/workflows` or hit an unrecoverable API error (the runtime resolves it to `null`; the runner never reads that as an empty result). Check the agent in `/workflows`, then relaunch as described next.
+
 ## Stopping and resuming
 
-Background execution keeps this session live — watch progress via `/workflows` and interject anytime. To stop, `TaskStop` the workflow; relaunch with `resumeFromRunId` to resume from cached agent results (same session). Small batches keep work-at-risk low.
+Background execution keeps this session live — watch progress via `/workflows` and interject anytime. To stop, `TaskStop` the workflow; relaunch with `resumeFromRunId` to resume from cached agent results (same session, and the SAME `args`: every prompt embeds the ledger, so a changed `ledger` or `startBatch` replays nothing — which is fine when `startBatch` skips those batches anyway). Small batches keep work-at-risk low.
 
 ## Model & Effort
 
