@@ -1,0 +1,12 @@
+{
+  "name": "writing",
+  "description": "A developer-documentation writing voice for every reply, comment, and file, a documentation-authoring skill, and an advisory Vale lint hook.",
+  "version": "0.1.0",
+  "author": {
+    "name": "shousper"
+  },
+  "homepage": "https://github.com/shousper/claude-kit",
+  "repository": "https://github.com/shousper/claude-kit",
+  "license": "MIT",
+  "keywords": ["omp", "writing", "documentation", "style", "vale"]
+}

@@ -18,6 +18,8 @@ export interface RunOptions {
   forkSession?: boolean;
   /** Bypass permission prompts so headless runs that write/exec don't hang. */
   dangerouslySkipPermissions?: boolean;
+  /** Provider-qualified on omp (see harness/omp.ts); an alias such as `sonnet` on claude. */
+  model?: string;
 }
 
 export interface Harness {

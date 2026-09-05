@@ -3,11 +3,12 @@ import { readdirSync, existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { resolve } from "path";
 import { parseSkill, type ParsedSkill } from "../utils/skill-parser";
-import { SKILLS_DIR, STORIES_ROOT, KIT_CLAUDE_ROOT, KIT_OMP_ROOT } from "../utils/paths";
+import { SKILLS_DIR, STORIES_ROOT, KIT_CLAUDE_ROOT, KIT_OMP_ROOT, WRITING_SKILLS_DIR } from "../utils/paths";
 
 const PLUGIN_SKILL_ROOTS: Record<string, string> = {
   kit: SKILLS_DIR,
   stories: resolve(STORIES_ROOT, "skills"),
+  writing: WRITING_SKILLS_DIR,
 };
 
 interface Entry {

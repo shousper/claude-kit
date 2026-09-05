@@ -1,0 +1,10 @@
+{
+  "name": "writing-omp",
+  "version": "0.1.0",
+  "private": true,
+  "omp": {
+    "extensions": [
+      "./omp/index.ts"
+    ]
+  }
+}

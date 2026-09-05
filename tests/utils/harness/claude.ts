@@ -40,7 +40,7 @@ export const claude: Harness = {
   pluginRoot: KIT_CLAUDE_ROOT,
 
   buildArgs(prompt, options) {
-    const args = ["-p", "--verbose", "--output-format", "stream-json", "--model", MODEL];
+    const args = ["-p", "--verbose", "--output-format", "stream-json", "--model", options.model ?? MODEL];
     for (const dir of options.pluginDirs ?? []) args.push("--plugin-dir", dir);
     if (options.maxTurns !== undefined) args.push("--max-turns", String(options.maxTurns));
     if (options.ephemeral) args.push("--no-session-persistence");

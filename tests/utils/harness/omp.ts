@@ -26,7 +26,7 @@ export const omp: Harness = {
   pluginRoot: KIT_OMP_ROOT,
 
   buildArgs(prompt, options) {
-    const args = ["-p", "--mode", "json", "--model", MODEL];
+    const args = ["-p", "--mode", "json", "--model", options.model ?? MODEL];
     // `-e` (not `--plugin-dir`): verified that `--plugin-dir` loads skills and agents but
     // NOT `package.json#omp.extensions`, so the hook bridge never runs and session-start.sh
     // never injects the using-kit governance block. Evaluating with `--plugin-dir` would

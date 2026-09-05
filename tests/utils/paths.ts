@@ -21,3 +21,13 @@ export const STORIES_ROOT = resolve(ROOT, "plugins/stories");
 
 export const MARKETPLACE_DIR = resolve(ROOT, ".claude-plugin");
 export const OMP_MARKETPLACE_DIR = resolve(ROOT, ".omp-plugin");
+
+// Writing plugins: opt-in, independent of kit. Their content lives under shared/writing/
+// (NOT shared/skills/, whose entries must be linked into both kit plugins).
+export const WRITING_ROOT = resolve(SHARED_ROOT, "writing");
+export const WRITING_SKILLS_DIR = resolve(WRITING_ROOT, "skills");
+export const WRITING_HOOKS_DIR = resolve(WRITING_ROOT, "hooks");
+export const WRITING_VALE_DIR = resolve(WRITING_ROOT, "vale");
+export const WRITING_CLAUDE_ROOT = resolve(ROOT, "plugins/writing-claude");
+export const WRITING_OMP_ROOT = resolve(ROOT, "plugins/writing-omp");
+export const WRITING_ROOTS: Record<"claude" | "omp", string> = { claude: WRITING_CLAUDE_ROOT, omp: WRITING_OMP_ROOT };

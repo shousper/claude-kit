@@ -1,0 +1,14 @@
+diff --git a/src/store.ts b/src/store.ts
+--- a/src/store.ts
++++ b/src/store.ts
+@@ -7,9 +7,10 @@ export interface Entry {
+ const entries = new Map<string, Entry>();
+ 
+-export function put(key: string, value: string, now: number): Entry {
+-  const entry = { key, value, updatedAt: now };
++export function put(key: string, value: string, now: number, ttlMs = 0): Entry {
++  const entry = { key, value, updatedAt: now, expiresAt: ttlMs > 0 ? now + ttlMs : undefined };
+   entries.set(key, entry);
++  if (ttlMs < 0) throw new RangeError("ttlMs must be zero or positive");
+   return entry;
+ }

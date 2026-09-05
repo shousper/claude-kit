@@ -39,14 +39,22 @@ export async function runEval(
   if (cwd) spawnOptions.cwd = cwd;
   if (env) spawnOptions.env = env;
 
-  const proc = Bun.spawn([bin, ...args], spawnOptions);
+  // New process group so timeout/exit can reap descendants (e.g. `yes` Claude
+  // leaves behind when the leader is killed). Killing -$pid of bun's own group
+  // would take down the test runner; only do it because we setpgrp first.
+  const python = Bun.which("python3") ?? "/usr/bin/python3";
+  const proc = Bun.spawn(
+    [python, "-c", "import os, sys; os.setpgrp(); os.execvp(sys.argv[1], sys.argv[1:])", bin, ...args],
+    spawnOptions,
+  );
+  const pgid = proc.pid;
 
   let timedOut = false;
   let sigkillTimer: ReturnType<typeof setTimeout> | undefined;
   const timer = setTimeout(() => {
     timedOut = true;
-    proc.kill();
-    sigkillTimer = setTimeout(() => proc.kill("SIGKILL"), 5_000);
+    reapProcessGroup(pgid, "SIGTERM");
+    sigkillTimer = setTimeout(() => reapProcessGroup(pgid, "SIGKILL"), 5_000);
   }, timeout);
 
   try {
@@ -72,6 +80,15 @@ export async function runEval(
     };
   } finally {
     clearTimeout(timer);
-    if (sigkillTimer) clearTimeout(sigkillTimer);
+    clearTimeout(sigkillTimer);
+    reapProcessGroup(pgid, "SIGKILL");
+  }
+}
+
+function reapProcessGroup(pgid: number, signal: "SIGTERM" | "SIGKILL"): void {
+  try {
+    process.kill(-pgid, signal);
+  } catch {
+    // ESRCH: group already gone.
   }
 }

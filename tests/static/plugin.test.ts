@@ -21,20 +21,24 @@ function readMarketplace(dir: string): Marketplace {
   return JSON.parse(readFileSync(resolve(dir, "marketplace.json"), "utf-8")) as Marketplace;
 }
 
-function readPluginJson(root: string): Record<string, unknown> {
-  const manifest = root === KIT_OMP_ROOT ? ".omp-plugin/plugin.json" : ".claude-plugin/plugin.json";
+function readPluginJson(root: string, catalogueDir?: string): Record<string, unknown> {
+  const preferred =
+    catalogueDir === OMP_MARKETPLACE_DIR || (catalogueDir === undefined && root === KIT_OMP_ROOT)
+      ? ".omp-plugin/plugin.json"
+      : ".claude-plugin/plugin.json";
+  const manifest = existsSync(resolve(root, preferred)) ? preferred : ".claude-plugin/plugin.json";
   return JSON.parse(readFileSync(resolve(root, manifest), "utf-8"));
 }
 
 const claudeMarketplace = readMarketplace(MARKETPLACE_DIR);
 const ompMarketplace = readMarketplace(OMP_MARKETPLACE_DIR);
 
-const CATALOGUES: Record<string, Marketplace> = {
-  ".claude-plugin/marketplace.json": claudeMarketplace,
-  ".omp-plugin/marketplace.json": ompMarketplace,
+const CATALOGUES: Record<string, { dir: string; catalogue: Marketplace }> = {
+  ".claude-plugin/marketplace.json": { dir: MARKETPLACE_DIR, catalogue: claudeMarketplace },
+  ".omp-plugin/marketplace.json": { dir: OMP_MARKETPLACE_DIR, catalogue: ompMarketplace },
 };
 
-for (const [catalogueName, catalogue] of Object.entries(CATALOGUES)) {
+for (const [catalogueName, { dir, catalogue }] of Object.entries(CATALOGUES)) {
   describe(catalogueName, () => {
     it("is valid JSON with required fields", () => {
       expect(typeof catalogue.name).toBe("string");
@@ -60,7 +64,7 @@ for (const [catalogueName, catalogue] of Object.entries(CATALOGUES)) {
 
     it("every referenced plugin has a readable plugin.json whose name agrees with the catalogue entry", () => {
       for (const plugin of catalogue.plugins) {
-        const pluginJson = readPluginJson(resolve(ROOT, plugin.source));
+        const pluginJson = readPluginJson(resolve(ROOT, plugin.source), dir);
         expect(pluginJson.name).toBe(plugin.name);
       }
     });
@@ -103,7 +107,7 @@ describe("kit plugin dual-harness scoping", () => {
 
 describe("stories plugin", () => {
   it("is listed in both catalogues sourced from plugins/stories", () => {
-    for (const catalogue of Object.values(CATALOGUES)) {
+    for (const { catalogue } of Object.values(CATALOGUES)) {
       const entry = catalogue.plugins.find((p) => p.name === "stories");
       expect(entry?.source).toBe("./plugins/stories");
       expect(resolve(ROOT, entry!.source)).toBe(STORIES_ROOT);

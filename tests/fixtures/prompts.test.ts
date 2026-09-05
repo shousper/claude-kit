@@ -26,7 +26,7 @@ describe("activationTests", () => {
     const withWorkspace = activationTests.filter((t) => t.workspace);
     expect(withWorkspace.length).toBeGreaterThan(0);
     for (const test of withWorkspace) {
-      expect(["go", "rust", "tailwind", "stories"]).toContain(test.workspace);
+      expect(["go", "rust", "tailwind", "stories", "writing"]).toContain(test.workspace);
     }
   });
 

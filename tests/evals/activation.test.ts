@@ -6,7 +6,7 @@ import { createWorkspace } from "../utils/workspace-manager";
 import { checkSkillActivation } from "../utils/skill-activation";
 import { selectHarnesses, type Harness } from "../utils/harness";
 import { paritySubset, smokeSubset } from "../utils/parity";
-import { STORIES_ROOT } from "../utils/paths";
+import { STORIES_ROOT, WRITING_ROOTS } from "../utils/paths";
 
 const TRIALS = 3;
 const REQUIRED_PASSES = 2;
@@ -60,8 +60,11 @@ function selectCases(): ActivationTest[] {
 
 function runActivationSuite(harness: Harness) {
   const grouped = groupTests(selectCases());
-  // Each harness installs from its own plugin dir (see Harness.pluginRoot for why).
-  const pluginDirs = [harness.pluginRoot, STORIES_ROOT];
+  // Each harness installs from its own plugin dir (see Harness.pluginRoot for why). The
+  // writing plugin joins only for its own cases so other skills are measured without it.
+  const basePluginDirs = [harness.pluginRoot, STORIES_ROOT];
+  const pluginDirsFor = (skill: string): string[] =>
+    skill.startsWith("writing:") ? [...basePluginDirs, WRITING_ROOTS[harness.id]] : basePluginDirs;
 
   describe.skipIf(!RUN_EVALS)(`skill activation (${harness.id})`, () => {
     for (const [skill, contexts] of Object.entries(grouped)) {
@@ -94,7 +97,7 @@ function runActivationSuite(harness: Harness) {
                         maxTurns: 3,
                         cwd: trialWorkspace.cwd,
                         env: trialWorkspace.env,
-                        pluginDirs,
+                        pluginDirs: pluginDirsFor(test.skill),
                         ephemeral: true,
                         ...(sessionOpt && trialWorkspace.sessionId
                           ? { resume: trialWorkspace.sessionId, forkSession: true }

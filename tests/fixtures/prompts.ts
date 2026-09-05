@@ -91,6 +91,19 @@ const prompts: Record<string, SkillPrompts> = {
     ],
   },
 
+  "writing:writing-docs": {
+    activate: [
+      { prompt: "Write a README for this package that explains installation and basic usage", workspace: "writing" },
+      { prompt: "Add documentation comments to the exported functions in src/store.ts", workspace: "writing" },
+      { prompt: "Document the release procedure in docs/releasing.md: bump the version, tag, and publish", workspace: "writing" },
+    ],
+    skip: [
+      { prompt: "Write the commit message for the staged changes", workspace: "writing" },
+      { prompt: "Fix the flaky test in tests/store.test.ts", workspace: "writing" },
+      "Explain what a git worktree is",
+    ],
+  },
+
   "create-pr": {
     activate: [
       "Let's create a pull request for this feature branch as a draft so I can review it on GitHub first",

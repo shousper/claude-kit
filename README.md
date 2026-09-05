@@ -1,9 +1,10 @@
 # claude-kit
 
-A Claude Code plugin marketplace hosting two plugins:
+A Claude Code plugin marketplace hosting three plugins:
 
 - **`kit`** (`plugins/kit/`) — a complete development workflow, from brainstorming ideas through design, implementation, code review, and branch completion.
 - **`stories`** (`plugins/stories/`) — a story-based autonomous workflow built on kit: a repo-native markdown story board with typed verification gates and a goal loop that works the board until it is drained. See [plugins/stories/README.md](plugins/stories/README.md).
+- **`writing`** (`plugins/writing-claude/`, `plugins/writing-omp/`) — an opt-in developer-documentation writing voice for every reply and file, a documentation-authoring skill, and an advisory Vale lint hook. Independent of kit.
 
 The remainder of this README documents `kit`.
 
@@ -20,6 +21,9 @@ The remainder of this README documents `kit`.
 
 # Optional: story-based autonomous workflow (requires kit)
 /plugin install stories@shousper-kit
+
+# Optional: writing voice, documentation skill, and Vale lint (independent of kit)
+/plugin install writing@shousper-kit
 ```
 
 ## Recommended Plugins

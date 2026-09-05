@@ -12,6 +12,12 @@
       "source": "./plugins/kit-omp"
     },
     {
+      "name": "writing",
+      "description": "Developer-documentation writing voice, a documentation-authoring skill, and an advisory Vale lint hook",
+      "version": "0.1.0",
+      "source": "./plugins/writing-omp"
+    },
+    {
       "name": "stories",
       "description": "Story-based autonomous workflow: markdown story board, typed verification gates, goal loop, parallel same-machine workers",
       "version": "0.4.1",

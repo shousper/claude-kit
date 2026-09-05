@@ -7,7 +7,7 @@ const FIXTURES_DIR = resolve(import.meta.dir, "../fixtures");
 const WORKSPACE_FIXTURES = join(FIXTURES_DIR, "workspace");
 const SESSION_FIXTURES = join(FIXTURES_DIR, "sessions");
 
-export type WorkspaceVariant = "go" | "rust" | "tailwind" | "stories";
+export type WorkspaceVariant = "go" | "rust" | "tailwind" | "stories" | "writing";
 
 export interface WorkspaceOptions {
   session?: "post-brainstorm" | "mid-session" | "brainstorm-design-approved" | "brainstorm-at-transition";
