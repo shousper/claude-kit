@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { generateId } from "../../plugins/stories/lib/board.mjs";
-import { CliError } from "../../plugins/stories/lib/util.mjs";
+import { generateId } from "../../shared/stories/lib/board.mjs";
+import { CliError } from "../../shared/stories/lib/util.mjs";
 
 describe("generateId", () => {
   test("produces st- + 4 hex chars", () => {

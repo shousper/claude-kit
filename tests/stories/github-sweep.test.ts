@@ -1,24 +1,14 @@
 import { promises as fs } from "node:fs";
-import path from "node:path";
 import { describe, expect, test } from "bun:test";
-import { SWEEP_STATE_FILE, isFeedback, sweep } from "../../plugins/stories/lib/github.mjs";
-import { withLock } from "../../plugins/stories/lib/locks.mjs";
-import { loadStoryById, makeFakeExec, makePrRepo, ok, writeStory } from "./gh-helpers.ts";
+import { isFeedback, sweep } from "../../shared/stories/lib/github.mjs";
+import { withLock } from "../../shared/stories/lib/locks.mjs";
+import { sweepStatePath } from "../../shared/stories/lib/util.mjs";
+import { branchName } from "../../shared/stories/lib/worktrees.mjs";
+import { inReviewStoryLines, loadStoryById, makeFakeExec, makePrRepo, ok, writeStory } from "./gh-helpers.ts";
 import { prDetail, prListEntry, review } from "./gh-fixtures.ts";
 import { DEFAULT_CONFIG, makeRepo, runStory } from "./helpers";
 
 const NOW = () => new Date("2026-07-08T14:00:00Z");
-
-const inReview = (id: string, n: number) => [
-  `id: ${id}`,
-  "title: A story",
-  "type: feature",
-  "status: in-review",
-  "priority: P2",
-  `pr: {number: ${n}, lastSync: 2026-07-08T12:00:00Z, syncAttempts: 0}`,
-  "created: 2026-07-08",
-  "updated: 2026-07-08",
-];
 
 describe("sweep", () => {
   test("non-pr merge mode is a no-op", async () => {
@@ -31,7 +21,7 @@ describe("sweep", () => {
   test("a recent shared lastSweep dedups; --force overrides", async () => {
     const root = await makePrRepo();
     await fs.writeFile(
-      path.join(root, SWEEP_STATE_FILE),
+      sweepStatePath(root),
       JSON.stringify({ lastSweep: "2026-07-08T13:59:50Z" }),
     );
     const { exec, calls } = makeFakeExec();
@@ -43,7 +33,7 @@ describe("sweep", () => {
     const forced = await sweep(root, { exec, now: NOW, force: true });
     expect(forced.swept).toBe(true); // no pr stories → no gh calls, but the sweep ran
     expect(calls).toHaveLength(0);
-    const state = JSON.parse(await fs.readFile(path.join(root, SWEEP_STATE_FILE), "utf8"));
+    const state = JSON.parse(await fs.readFile(sweepStatePath(root), "utf8"));
     expect(state.lastSweep).toBe("2026-07-08T14:00:00.000Z");
   });
 
@@ -60,14 +50,14 @@ describe("sweep", () => {
 
   test("full pass: one list call, details only for changed open PRs, effects applied, cursors advanced", async () => {
     const root = await makePrRepo();
-    await writeStory(root, inReview("st-3e46", 1));
-    await writeStory(root, inReview("st-feed", 2));
-    await writeStory(root, inReview("st-901e", 3));
+    await writeStory(root, inReviewStoryLines("st-3e46", 1));
+    await writeStory(root, inReviewStoryLines("st-feed", 2));
+    await writeStory(root, inReviewStoryLines("st-901e", 3));
 
     const list = [
-      prListEntry({ number: 1, state: "MERGED", headRefName: "story/st-3e46" }),
-      prListEntry({ number: 2, updatedAt: "2026-07-08T13:00:00Z", headRefName: "story/st-feed" }),
-      prListEntry({ number: 3, updatedAt: "2026-07-08T13:00:00Z", headRefName: "story/st-901e" }),
+      prListEntry({ number: 1, state: "MERGED", headRefName: branchName("st-3e46") }),
+      prListEntry({ number: 2, updatedAt: "2026-07-08T13:00:00Z", headRefName: branchName("st-feed") }),
+      prListEntry({ number: 3, updatedAt: "2026-07-08T13:00:00Z", headRefName: branchName("st-901e") }),
     ];
     const { exec, lines } = makeFakeExec([
       ["gh pr list", ok(JSON.stringify(list))],

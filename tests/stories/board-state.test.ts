@@ -1,18 +1,14 @@
 import { describe, expect, test, afterEach } from "bun:test";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { makeRepo, DEFAULT_CONFIG, STORIES_LIB, type Repo } from "./helpers";
+import { stateStorePath } from "../../shared/stories/lib/util.mjs";
+import { makeRepo, DEFAULT_CONFIG, storyDoc, writeStoryFile, type Repo } from "./helpers";
+import { STORIES_LIB_DIR } from "../utils/paths";
 
-const board = await import(join(STORIES_LIB, "board.mjs"));
+const board = await import(join(STORIES_LIB_DIR, "board.mjs"));
 
 let repo: Repo;
 afterEach(() => repo?.cleanup());
-
-const STATE_PATH = (root: string) => join(root, ".claude", "story-state.local.json");
-
-function writeStoryFile(root: string, name: string, frontmatter: string, body = "\n## Description\n") {
-  writeFileSync(join(root, "stories", name), `---\n${frontmatter}\n---\n${body}`);
-}
 
 describe("state store io", () => {
   test("readStateStore returns empty store when file is absent", async () => {
@@ -24,12 +20,12 @@ describe("state store io", () => {
     repo = await makeRepo();
     board.writeStateStore(repo.root, { version: 1, stories: { "st-aaaa": { status: "todo" } } });
     expect(board.readStateStore(repo.root).stories["st-aaaa"].status).toBe("todo");
-    expect(existsSync(STATE_PATH(repo.root))).toBe(true);
+    expect(existsSync(stateStorePath(repo.root))).toBe(true);
   });
 
   test("readStateStore throws CliError on corrupt JSON", async () => {
     repo = await makeRepo();
-    writeFileSync(STATE_PATH(repo.root), "{nope");
+    writeFileSync(stateStorePath(repo.root), "{nope");
     expect(() => board.readStateStore(repo.root)).toThrow(/corrupt story state/);
   });
 });
@@ -37,7 +33,7 @@ describe("state store io", () => {
 describe("loadStories overlay", () => {
   test("store state wins over frontmatter state", async () => {
     repo = await makeRepo();
-    writeStoryFile(repo.root, "st-aaaa-x.md", "id: st-aaaa\ntitle: X\nstatus: todo");
+    await writeStoryFile(repo.root, "st-aaaa-x.md", storyDoc(["id: st-aaaa", "title: X", "status: todo"]));
     board.writeStateStore(repo.root, {
       version: 1,
       stories: { "st-aaaa": { status: "in-progress", claim: { session: "s1", lease: "2026-08-18T00:00:00Z" } } },
@@ -49,14 +45,14 @@ describe("loadStories overlay", () => {
 
   test("frontmatter state is the fallback for unmigrated stories", async () => {
     repo = await makeRepo();
-    writeStoryFile(repo.root, "st-bbbb-y.md", "id: st-bbbb\ntitle: Y\nstatus: blocked");
+    await writeStoryFile(repo.root, "st-bbbb-y.md", storyDoc(["id: st-bbbb", "title: Y", "status: blocked"]));
     const [s] = board.loadStories(repo.root, DEFAULT_CONFIG);
     expect(s.status).toBe("blocked");
   });
 
   test("a story with state in neither place defaults to todo", async () => {
     repo = await makeRepo();
-    writeStoryFile(repo.root, "st-cccc-z.md", "id: st-cccc\ntitle: Z");
+    await writeStoryFile(repo.root, "st-cccc-z.md", storyDoc(["id: st-cccc", "title: Z"]));
     const [s] = board.loadStories(repo.root, DEFAULT_CONFIG);
     expect(s.status).toBe("todo");
   });

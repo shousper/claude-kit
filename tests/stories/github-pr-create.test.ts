@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import path from "node:path";
 import { join } from "node:path";
 import { writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { buildPrBody, createPr, integratePrMode } from "../../plugins/stories/lib/github.mjs";
-import { computeReady } from "../../plugins/stories/lib/board.mjs";
-import { run } from "../../plugins/stories/lib/util.mjs";
+import { buildPrBody, createPr, integratePrMode } from "../../shared/stories/lib/github.mjs";
+import { computeReady } from "../../shared/stories/lib/board.mjs";
+import { run } from "../../shared/stories/lib/util.mjs";
+import { branchName, worktreePath } from "../../shared/stories/lib/worktrees.mjs";
 import { loadStoryById, makeFakeExec, makePrRepo, ok, fail, writeStory } from "./gh-helpers.ts";
-import { DEFAULT_CONFIG, makeRepo, runStory } from "./helpers";
+import { DEFAULT_CONFIG, makeRepo, runStory, storyLines } from "./helpers";
 
 const story = {
   id: "st-aaaa",
@@ -51,21 +51,12 @@ describe("buildPrBody", () => {
   });
 });
 
-const storyLines = (id: string, extra: string[] = []) => [
-  `id: ${id}`,
-  "title: Add gates",
-  "type: feature",
-  "status: in-progress",
-  "priority: P2",
-  "created: 2026-07-08",
-  "updated: 2026-07-08",
-  ...extra,
-];
+const STORY_OVERRIDES = { title: "Add gates", status: "in-progress" };
 
 describe("createPr", () => {
   test("pushes branch, creates PR with story id in branch and title, enables auto-merge", async () => {
     const root = await makePrRepo();
-    await writeStory(root, storyLines("st-aaaa"), "## Acceptance Criteria\n- [ ] works");
+    await writeStory(root, storyLines("st-aaaa", STORY_OVERRIDES), "## Acceptance Criteria\n- [ ] works");
     const { exec, calls, lines } = makeFakeExec([
       ["gh pr create", ok("https://github.com/o/r/pull/12\n")],
     ]);
@@ -73,11 +64,11 @@ describe("createPr", () => {
     expect(res.number).toBe(12);
     expect(res.autoMerge).toBe(true);
 
-    expect(lines()[0]).toBe("git push -u origin story/st-aaaa");
-    expect(calls[0].opts.cwd).toBe(path.join(root, ".worktrees", "st-aaaa"));
+    expect(lines()[0]).toBe(`git push -u origin ${branchName("st-aaaa")}`);
+    expect(calls[0].opts.cwd).toBe(worktreePath(root, "st-aaaa"));
 
     const create = calls.find((c) => c.cmd === "gh" && c.args[1] === "create")!;
-    expect(create.args[create.args.indexOf("--head") + 1]).toBe("story/st-aaaa");
+    expect(create.args[create.args.indexOf("--head") + 1]).toBe(branchName("st-aaaa"));
     expect(create.args[create.args.indexOf("--base") + 1]).toBe("main");
     expect(create.args[create.args.indexOf("--title") + 1]).toContain("st-aaaa");
     expect(create.args[create.args.indexOf("--body") + 1]).toContain("- [ ] works");
@@ -87,7 +78,7 @@ describe("createPr", () => {
 
   test("tolerates auto-merge being unavailable", async () => {
     const root = await makePrRepo();
-    await writeStory(root, storyLines("st-bbbb"));
+    await writeStory(root, storyLines("st-bbbb", STORY_OVERRIDES));
     const { exec } = makeFakeExec([
       ["gh pr create", ok("https://github.com/o/r/pull/13\n")],
       ["gh pr merge", fail(1, "auto-merge is not allowed on this repository")],
@@ -99,7 +90,7 @@ describe("createPr", () => {
 
   test("throws when the PR number cannot be parsed", async () => {
     const root = await makePrRepo();
-    await writeStory(root, storyLines("st-cccc"));
+    await writeStory(root, storyLines("st-cccc", STORY_OVERRIDES));
     const { exec } = makeFakeExec([["gh pr create", ok("garbage")]]);
     await expect(
       createPr(root, await loadStoryById(root, "st-cccc"), { exec }),
@@ -110,7 +101,7 @@ describe("createPr", () => {
 describe("integratePrMode", () => {
   test("first integration creates the PR, reconciles touches, clears the claim, records pr map + in-review", async () => {
     const root = await makePrRepo();
-    await writeStory(root, storyLines("st-dddd", [
+    await writeStory(root, storyLines("st-dddd", STORY_OVERRIDES, [
       "touches: [declared/**]",
       "claim: {session: w1, lease: 2026-07-08T13:00:00Z}",
     ]), "## Acceptance Criteria\n- [ ] x");
@@ -141,7 +132,7 @@ describe("integratePrMode", () => {
 
   test("re-integration of a feedback item pushes to the existing PR, clears flag + claim", async () => {
     const root = await makePrRepo();
-    await writeStory(root, storyLines("st-eeee", [
+    await writeStory(root, storyLines("st-eeee", STORY_OVERRIDES, [
       "feedback: true",
       "claim: {session: w2, lease: 2026-07-08T13:30:00Z}",
       "pr: {number: 33, lastSync: 2026-07-08T12:00:00Z, syncAttempts: 1}",
@@ -152,7 +143,7 @@ describe("integratePrMode", () => {
       diff: ["fix.ts"],
     });
     expect(res).toEqual({ number: 33, created: false });
-    expect(lines()).toContain("git push origin story/st-eeee");
+    expect(lines()).toContain(`git push origin ${branchName("st-eeee")}`);
     expect(lines().some((l) => l.startsWith("gh pr create"))).toBe(false);
 
     const after = await loadStoryById(root, "st-eeee");
@@ -171,7 +162,7 @@ describe("story done → integratePrMode dispatch (pr mode, end to end)", () => 
     const created = await runStory(repo.root, ["create", "--title", "pr story", "--touches", "declared/**", "--json"]);
     const { id } = created.json() as { id: string };
     expect((await runStory(repo.root, ["claim", id, "--session", "w1"])).code).toBe(0);
-    const wt = join(repo.root, ".worktrees", id);
+    const wt = worktreePath(repo.root, id);
     writeFileSync(join(wt, "impl.ts"), "code\n");
     spawnSync("git", ["add", "impl.ts"], { cwd: wt });
     spawnSync("git", ["commit", "-m", "implement"], { cwd: wt });

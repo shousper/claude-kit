@@ -4,26 +4,19 @@ import {
   latestEvidence,
   recordVerdict,
   writeEvidence,
-} from "../../plugins/stories/lib/gates.mjs";
+} from "../../shared/stories/lib/gates.mjs";
 import {
   appendNote,
   appendQuestion,
   mutateBoard,
   runGatesWithEvidence,
-} from "../../plugins/stories/lib/github.mjs";
-import { lockPath } from "../../plugins/stories/lib/locks.mjs";
-import { loadConfig } from "../../plugins/stories/lib/cli.mjs";
+} from "../../shared/stories/lib/github.mjs";
+import { lockPath } from "../../shared/stories/lib/util.mjs";
+import { loadConfig } from "../../shared/stories/lib/board.mjs";
 import { loadStoryById, makePrRepo, writeStory } from "./gh-helpers.ts";
+import { storyLines } from "./helpers";
 
-const lines = (id: string) => [
-  `id: ${id}`,
-  "title: A story",
-  "type: feature",
-  "status: todo",
-  "priority: P2",
-  "created: 2026-07-08",
-  "updated: 2020-01-01",
-];
+const lines = (id: string) => storyLines(id, { updated: "2020-01-01" });
 
 describe("gates.latestEvidence", () => {
   test("null with no evidence; ignores verdict files; picks the newest", async () => {

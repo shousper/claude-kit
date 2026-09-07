@@ -2,9 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import { loadStories, readStateStore } from "../../plugins/stories/lib/board.mjs";
-import { CliError } from "../../plugins/stories/lib/util.mjs";
-import { flipStatus, runDoctor } from "../../plugins/stories/lib/doctor.mjs";
+import { loadStories, readStateStore } from "../../shared/stories/lib/board.mjs";
+import { CliError } from "../../shared/stories/lib/util.mjs";
+import { KIND, flipStatus, runDoctor } from "../../shared/stories/lib/doctor.mjs";
+import { branchName, mergeCommitMessage, worktreePath } from "../../shared/stories/lib/worktrees.mjs";
 import { DEFAULT_CONFIG, makeRepo, runStory, storyText, writeStoryFile } from "./helpers";
 
 type Issue = { kind: string; id?: string; dep?: string; ids?: string[]; hard?: boolean };
@@ -44,7 +45,7 @@ describe("story doctor — detection", () => {
         claim: "{session: dead-worker, lease: 2020-01-01T00:00:00.000Z}",
       }),
     );
-    mkdirSync(join(repo.root, ".worktrees/st-90e0"), { recursive: true });
+    mkdirSync(worktreePath(repo.root, "st-90e0"), { recursive: true });
 
     const r = await runStory(repo.root, ["doctor", "--json"]);
     expect(r.code).toBe(0); // soft issues do not fail the command
@@ -54,15 +55,15 @@ describe("story doctor — detection", () => {
       // still in its file (st-0001/0002/0003/0005 — st-0004 is skipped, its
       // status is illegal so it never reaches the state-fields check).
       [
-        "cycle", "dangling-dep",
-        "frontmatter-state", "frontmatter-state", "frontmatter-state", "frontmatter-state",
-        "invalid", "orphan-worktree", "stale-lease", "unadopted",
+        KIND.CYCLE, KIND.DANGLING_DEP,
+        KIND.FRONTMATTER_STATE, KIND.FRONTMATTER_STATE, KIND.FRONTMATTER_STATE, KIND.FRONTMATTER_STATE,
+        KIND.INVALID, KIND.ORPHAN_WORKTREE, KIND.STALE_LEASE, KIND.UNADOPTED,
       ].sort(),
     );
-    expect(issues.find((i) => i.kind === "dangling-dep")).toMatchObject({ id: "st-0001", dep: "st-dead" });
-    expect(issues.find((i) => i.kind === "cycle")!.ids).toEqual(expect.arrayContaining(["st-0002", "st-0003"]));
-    expect(issues.find((i) => i.kind === "stale-lease")).toMatchObject({ id: "st-0005" });
-    expect(issues.find((i) => i.kind === "orphan-worktree")).toMatchObject({ id: "st-90e0" });
+    expect(issues.find((i) => i.kind === KIND.DANGLING_DEP)).toMatchObject({ id: "st-0001", dep: "st-dead" });
+    expect(issues.find((i) => i.kind === KIND.CYCLE)!.ids).toEqual(expect.arrayContaining(["st-0002", "st-0003"]));
+    expect(issues.find((i) => i.kind === KIND.STALE_LEASE)).toMatchObject({ id: "st-0005" });
+    expect(issues.find((i) => i.kind === KIND.ORPHAN_WORKTREE)).toMatchObject({ id: "st-90e0" });
     await repo.cleanup();
   });
 
@@ -72,7 +73,7 @@ describe("story doctor — detection", () => {
     const r = await runStory(repo.root, ["doctor", "--json"]);
     expect(r.code).toBe(1);
     const { issues } = r.json() as { issues: Issue[] };
-    expect(issues[0]).toMatchObject({ kind: "corrupt", hard: true });
+    expect(issues[0]).toMatchObject({ kind: KIND.CORRUPT, hard: true });
     await repo.cleanup();
   });
 
@@ -96,7 +97,7 @@ describe("story doctor — detection", () => {
     );
     const r = await runStory(repo.root, ["doctor", "--json"]);
     expect(r.code).toBe(0); // soft issue, not a hard corruption
-    const invalid = (r.json() as { issues: Issue[] }).issues.find((i) => i.kind === "invalid-id");
+    const invalid = (r.json() as { issues: Issue[] }).issues.find((i) => i.kind === KIND.INVALID_ID);
     expect(invalid).toBeDefined();
     await repo.cleanup();
   });
@@ -112,7 +113,7 @@ describe("story doctor — detection", () => {
       }),
     );
     const r = await runStory(repo.root, ["doctor", "--json"]);
-    expect((r.json() as { issues: Issue[] }).issues.filter((i) => i.kind === "stale-lease")).toEqual([]);
+    expect((r.json() as { issues: Issue[] }).issues.filter((i) => i.kind === KIND.STALE_LEASE)).toEqual([]);
     await repo.cleanup();
   });
 
@@ -132,8 +133,8 @@ describe("story doctor — detection", () => {
     const r = await runStory(repo.root, ["doctor", "--json"]);
     expect(r.code).toBe(0); // soft issue
     const { issues } = r.json() as { issues: Issue[] };
-    expect(issues.find((i) => i.kind === "missing-worktree")).toMatchObject({ id: "st-0001" });
-    expect(issues.find((i) => i.kind === "stale-lease")).toBeUndefined(); // fresh lease → not stale
+    expect(issues.find((i) => i.kind === KIND.MISSING_WORKTREE)).toMatchObject({ id: "st-0001" });
+    expect(issues.find((i) => i.kind === KIND.STALE_LEASE)).toBeUndefined(); // fresh lease → not stale
     await repo.cleanup();
   });
 
@@ -148,8 +149,8 @@ describe("story doctor — detection", () => {
       }),
     );
     const { issues } = (await runStory(repo.root, ["doctor", "--json"])).json() as { issues: Issue[] };
-    expect(issues.find((i) => i.kind === "stale-lease")).toMatchObject({ id: "st-0001" });
-    expect(issues.find((i) => i.kind === "missing-worktree")).toBeUndefined();
+    expect(issues.find((i) => i.kind === KIND.STALE_LEASE)).toMatchObject({ id: "st-0001" });
+    expect(issues.find((i) => i.kind === KIND.MISSING_WORKTREE)).toBeUndefined();
     await repo.cleanup();
   });
 });
@@ -165,13 +166,13 @@ describe("story doctor --fix", () => {
         claim: "{session: dead, lease: 2020-01-01T00:00:00.000Z}",
       }),
     );
-    git(repo.root, "worktree", "add", "-b", "story/st-0001", join(repo.root, ".worktrees/st-0001"), "main");
+    git(repo.root, "worktree", "add", "-b", branchName("st-0001"), worktreePath(repo.root, "st-0001"), "main");
     const r = await runStory(repo.root, ["doctor", "--fix", "--json"]);
     expect(r.code).toBe(0);
     const s = loadStories(repo.root, CONFIG)[0];
     expect(s.status).toBe("todo");
     expect(s.claim).toBeUndefined();
-    expect(existsSync(join(repo.root, ".worktrees/st-0001"))).toBe(true); // partial work preserved
+    expect(existsSync(worktreePath(repo.root, "st-0001"))).toBe(true); // partial work preserved
     await repo.cleanup();
   });
 
@@ -200,25 +201,25 @@ describe("story doctor --fix", () => {
     await writeStoryFile(repo.root, "st-0002-b.md", storyText({ id: "st-0002", title: "b", status: "todo", depends_on: "[st-0003]" }));
     await writeStoryFile(repo.root, "st-0003-c.md", storyText({ id: "st-0003", title: "c", status: "todo", depends_on: "[st-0002]" }));
     const { mkdirSync } = await import("node:fs");
-    mkdirSync(join(repo.root, ".worktrees/st-90e0"), { recursive: true });
+    mkdirSync(worktreePath(repo.root, "st-90e0"), { recursive: true });
     const r = await runStory(repo.root, ["doctor", "--fix", "--json"]);
     expect(r.code).toBe(0);
     expect(loadStories(repo.root, CONFIG).find((s) => s.id === "st-0004")!.status).toBe("todo");
-    expect(existsSync(join(repo.root, ".worktrees/st-90e0"))).toBe(false);
+    expect(existsSync(worktreePath(repo.root, "st-90e0"))).toBe(false);
     const again = await runStory(repo.root, ["doctor", "--json"]);
-    expect((again.json() as { issues: Array<{ kind: string }> }).issues.map((i) => i.kind)).toEqual(["cycle"]);
+    expect((again.json() as { issues: Array<{ kind: string }> }).issues.map((i) => i.kind)).toEqual([KIND.CYCLE]);
     await repo.cleanup();
   });
 
   test("local mode: flips merged in-review stories to done and tears down", async () => {
     const repo = await makeRepo({ ...DEFAULT_CONFIG, merge: "local" });
     await writeStoryFile(repo.root, "st-0001-a.md", storyText({ id: "st-0001", title: "a", status: "in-review" }));
-    const wt = join(repo.root, ".worktrees/st-0001");
-    git(repo.root, "worktree", "add", "-b", "story/st-0001", wt, "main");
+    const wt = worktreePath(repo.root, "st-0001");
+    git(repo.root, "worktree", "add", "-b", branchName("st-0001"), wt, "main");
     await Bun.write(join(wt, "reviewed.ts"), "x");
     git(wt, "add", "reviewed.ts");
     git(wt, "commit", "-m", "work");
-    git(repo.root, "merge", "--no-ff", "story/st-0001", "-m", "human merge");
+    git(repo.root, "merge", "--no-ff", branchName("st-0001"), "-m", "human merge");
     const r = await runStory(repo.root, ["doctor", "--fix", "--json"]);
     expect(r.code).toBe(0);
     expect(loadStories(repo.root, CONFIG)[0].status).toBe("done");
@@ -240,20 +241,20 @@ describe("story doctor --fix", () => {
         claim: "{session: crashed, lease: 2020-01-01T00:00:00.000Z}",
       }),
     );
-    const wt = join(repo.root, ".worktrees/st-0001");
-    git(repo.root, "worktree", "add", "-b", "story/st-0001", wt, "main");
+    const wt = worktreePath(repo.root, "st-0001");
+    git(repo.root, "worktree", "add", "-b", branchName("st-0001"), wt, "main");
     writeFileSync(join(wt, "impl.ts"), "code\n");
     git(wt, "add", "impl.ts");
     git(wt, "commit", "-m", "implement");
-    git(repo.root, "merge", "--no-ff", "story/st-0001", "-m", "story st-0001: a");
+    git(repo.root, "merge", "--no-ff", branchName("st-0001"), "-m", mergeCommitMessage("st-0001", "a"));
     git(repo.root, "worktree", "remove", "--force", wt);
-    git(repo.root, "branch", "-D", "story/st-0001");
+    git(repo.root, "branch", "-D", branchName("st-0001"));
 
     const detect = await runStory(repo.root, ["doctor", "--json"]);
     const { issues } = detect.json() as { issues: Issue[] };
-    expect(issues.find((i) => i.kind === "merged-self")).toMatchObject({ id: "st-0001" });
-    expect(issues.find((i) => i.kind === "stale-lease")).toBeUndefined();
-    expect(issues.find((i) => i.kind === "missing-worktree")).toBeUndefined();
+    expect(issues.find((i) => i.kind === KIND.MERGED_SELF)).toMatchObject({ id: "st-0001" });
+    expect(issues.find((i) => i.kind === KIND.STALE_LEASE)).toBeUndefined();
+    expect(issues.find((i) => i.kind === KIND.MISSING_WORKTREE)).toBeUndefined();
 
     const r = await runStory(repo.root, ["doctor", "--fix", "--json"]);
     expect(r.code).toBe(0);
@@ -315,12 +316,12 @@ describe("story doctor --fix", () => {
     // only the safe kinds auto-fix; everything else stays detect-only.
     const report = runDoctor(repo.root, { storiesDir: "stories" }, {
       fix: true,
-      kinds: ["merged-local", "stale-lease"],
+      kinds: [KIND.MERGED_LOCAL, KIND.STALE_LEASE],
     });
     expect(report.fixed.map((f: { kind: string }) => f.kind)).toEqual(["lease-reclaimed"]);
     // frontmatter-state is reported (raw status/claim still on disk) but not
     // in the fix kinds list, so it stays detect-only alongside unadopted.
-    expect(kinds(report.issues as Issue[])).toEqual(["frontmatter-state", "stale-lease", "unadopted"].sort());
+    expect(kinds(report.issues as Issue[])).toEqual([KIND.FRONTMATTER_STATE, KIND.STALE_LEASE, KIND.UNADOPTED].sort());
     expect(loadStories(repo.root, CONFIG).find((s) => s.id === "st-0001")!.status).toBe("todo");
     expect(existsSync(join(repo.root, "stories/loose-idea.md"))).toBe(true); // unadopted → detect-only
     await repo.cleanup();
@@ -335,11 +336,11 @@ describe("story doctor --fix", () => {
     );
     // a live worktree keeps this out of the unrelated missing-worktree check —
     // this test is isolating the frontmatter-state migration.
-    mkdirSync(join(repo.root, ".worktrees", "st-a1a1"), { recursive: true });
+    mkdirSync(worktreePath(repo.root, "st-a1a1"), { recursive: true });
     // now pinned just after the lease so it reads as fresh, not stale — this
     // test is about the frontmatter-state migration, not stale-lease reclaim.
     const report = runDoctor(repo.root, DEFAULT_CONFIG, { fix: true, now: Date.parse("2026-08-18T00:00:01Z") });
-    expect(report.issues.some((i) => i.kind === "frontmatter-state" && i.id === "st-a1a1")).toBe(true);
+    expect(report.issues.some((i) => i.kind === KIND.FRONTMATTER_STATE && i.id === "st-a1a1")).toBe(true);
     const raw = readFileSync(join(repo.root, "stories", "st-a1a1-legacy.md"), "utf8");
     expect(raw).not.toContain("status:");
     expect(readStateStore(repo.root).stories["st-a1a1"].status).toBe("in-progress");

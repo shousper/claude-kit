@@ -1,15 +1,17 @@
 import { describe, it, expect } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, writeFile, realpath } from "fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "fs/promises";
 import { existsSync } from "fs";
-import { tmpdir } from "os";
 import { join } from "path";
 import {
-  readLoopState, writeLoopState, loopStatePath, legacyLoopPath, listLoopStates,
-  appendLearning, readLearnings, learningsPath,
-  extractSection, scopeStories, buildBlockReason, tick, runLoopCommand as runLoopCommandParsed,
-} from "../../plugins/stories/lib/loop.mjs";
-import { loadStories } from "../../plugins/stories/lib/board.mjs";
-import { parseArgv } from "../../plugins/stories/lib/cli.mjs";
+  readLoopState, writeLoopState, listLoopStates,
+  appendLearning, readLearnings,
+  scopeStories, buildBlockReason, tick, progressMarker, runLoopCommand as runLoopCommandParsed,
+} from "../../shared/stories/lib/loop.mjs";
+import { configPath, learningsPath, localDir, loopStatePath, stateStorePath } from "../../shared/stories/lib/util.mjs";
+import { loadStories } from "../../shared/stories/lib/board.mjs";
+import { branchName, worktreePath } from "../../shared/stories/lib/worktrees.mjs";
+import { parseArgv } from "../../shared/stories/lib/cli.mjs";
+import { makeTmpDir } from "./helpers";
 
 // Test-only shim: cli.mjs's parseArgv is the single parser production now feeds
 // runLoopCommand with (no more re-serialize-then-reparse). Accept the old
@@ -21,13 +23,13 @@ function runLoopCommand(argv: string[], opts: Record<string, unknown> = {}) {
 }
 
 export async function makeRoot(config: Record<string, unknown> = {}): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "story-loop-")).then(realpath);
-  await mkdir(join(dir, ".claude"), { recursive: true });
+  const dir = await makeTmpDir("story-loop-");
+  await mkdir(localDir(dir), { recursive: true });
   await writeFile(
-    join(dir, ".claude/story-workflow.json"),
+    configPath(dir),
     JSON.stringify({
       version: 1, storiesDir: "stories", merge: "self", gates: {}, defaults: {},
-      budgets: { maxIterations: 10, maxFixRoundsPerStory: 3 },
+      budgets: { maxStalls: 3, maxFixRoundsPerStory: 3 },
       ...config,
     }),
   );
@@ -38,7 +40,8 @@ const baseState = () => ({
   goal: "complete all stories",
   session_id: "sess-1",
   iteration: 2,
-  max_iterations: 10,
+  stalls: 0,
+  max_stalls: 3,
   attempts: { "st-a1b2": 1 },
 });
 
@@ -50,15 +53,15 @@ describe("loop state file", () => {
   it("round-trips state through frontmatter", async () => {
     const root = await makeRoot();
     writeLoopState(root, baseState());
-    expect(readLoopState(root, "sess-1")).toEqual(baseState());
+    expect(readLoopState(root, "sess-1")).toEqual({ ...baseState(), progress_marker: "" });
   });
 
-  it("creates .claude/ when missing and leaves no temp files behind", async () => {
-    const root = await mkdtemp(join(tmpdir(), "story-loop-bare-")).then(realpath);
+  it("creates the local state dir when missing and leaves no temp files behind", async () => {
+    const root = await makeTmpDir("story-loop-bare-");
     writeLoopState(root, baseState());
     writeLoopState(root, { ...baseState(), iteration: 3 });
     expect(readLoopState(root, "sess-1")!.iteration).toBe(3);
-    expect(await readdir(join(root, ".claude"))).toEqual(["story-loop.sess-1.local.md"]);
+    expect(await readdir(localDir(root))).toEqual(["loop.sess-1.md"]);
   });
 
   it("throws on a corrupt state file", async () => {
@@ -69,7 +72,7 @@ describe("loop state file", () => {
 
   it("sanitizes unsafe characters in the session id", async () => {
     const root = await makeRoot();
-    expect(loopStatePath(root, "weird/id:1")).toBe(join(root, ".claude/story-loop.weird_id_1.local.md"));
+    expect(loopStatePath(root, "weird/id:1")).toBe(join(localDir(root), "loop.weird_id_1.md"));
   });
 });
 
@@ -111,22 +114,6 @@ const STORY_BODY = [
   "## Questions", "", "Should gates run twice?", "",
 ].join("\n");
 
-describe("extractSection", () => {
-  it("returns the section body, stopping at the next H2", () => {
-    expect(extractSection(STORY_BODY, "Acceptance Criteria"))
-      .toBe("- [ ] bun test passes\n- [ ] CLI prints the id");
-  });
-
-  it("returns '' for a missing section or empty body", () => {
-    expect(extractSection(STORY_BODY, "Implementation Plan")).toBe("");
-    expect(extractSection(undefined, "Questions")).toBe("");
-  });
-
-  it("matches headings case-insensitively", () => {
-    expect(extractSection(STORY_BODY, "acceptance criteria")).toContain("bun test passes");
-  });
-});
-
 describe("scopeStories", () => {
   const stories = [
     { id: "st-1111", epic: "st-9c01", status: "todo" },
@@ -156,14 +143,14 @@ describe("buildBlockReason", () => {
     const reason = buildBlockReason(
       { id: "st-a1b2", title: "Sample story", body: STORY_BODY },
       "- always run gates from the worktree",
-      { iteration: 3, max_iterations: 10 },
+      { iteration: 3, stalls: 0, max_stalls: 3 },
     );
     expect(reason).toContain("st-a1b2 - Sample story");
     expect(reason).toContain("- [ ] bun test passes");
     expect(reason).toContain("story claim st-a1b2");
     expect(reason).toContain("story done st-a1b2");
     expect(reason).toContain("always run gates from the worktree");
-    expect(reason).toContain("iteration 3/10");
+    expect(reason).toContain("iteration 3 (stalls 0/3)");
   });
 });
 
@@ -246,6 +233,25 @@ describe("tick: session ownership + terminal decisions", () => {
     expect(readLoopState(root, "sess-1")!.iteration).toBe(2); // no bump — nothing was prompted
   });
 
+  it("repeated holds while a claim is in flight never burn the stall budget (loop file survives)", async () => {
+    const root = await makeRoot();
+    const stories = [
+      sampleStory({ id: "st-a1b2", status: "in-progress", claim: { session: "sess-1", lease: "2026-08-20T00:00:00Z" } }),
+    ];
+    // One tick below the stall budget and a marker that already matches this
+    // board: under the old ordering, the very next tick would compute the
+    // stall BEFORE checking in-flight, hit the budget, and unlink the file
+    // even though the session's own story is quietly in progress.
+    writeLoopState(root, { ...baseState(), stalls: 2, progress_marker: progressMarker(stories) });
+    for (let i = 0; i < 4; i++) {
+      const r = await runTick({ root, stories });
+      expect(r.decision).toBe("allow");
+      expect(r.summary).toContain("in flight");
+    }
+    expect(existsSync(loopStatePath(root, "sess-1"))).toBe(true);
+    expect(readLoopState(root, "sess-1")!.stalls).toBe(2); // untouched by holds
+  });
+
   it("another session's in-flight claim does not suppress this session's next prompt", async () => {
     const root = await makeRoot();
     writeLoopState(root, baseState());
@@ -290,19 +296,19 @@ describe("tick: session ownership + terminal decisions", () => {
   it("allows-stop with a clear reason when the config is corrupt (never crashes the hook, never drives on {})", async () => {
     const root = await makeRoot();
     writeLoopState(root, baseState()); // an active loop exists…
-    await writeFile(join(root, ".claude/story-workflow.json"), "{ not json");
+    await writeFile(configPath(root), "{ not json");
     // …but a corrupt config must NOT crash the tick and must NOT proceed with
     // an empty config — it allows the stop with an explanatory reason.
     const r = await tick("sess-1", { root });
     expect(r.decision).toBe("allow");
     expect(r.summary).toMatch(/cannot run/i);
-    expect(r.summary).toMatch(/story-workflow\.json/);
+    expect(r.summary).toMatch(/config\.json/);
   });
 
   it("allows-stop with a clear reason when the state store is corrupt (not a silent no-op)", async () => {
     const root = await makeRoot();
     writeLoopState(root, baseState()); // an active loop exists…
-    await writeFile(join(root, ".claude/story-state.local.json"), "{ not json");
+    await writeFile(stateStorePath(root), "{ not json");
     // …but a corrupt store — the single dependency of loadStories/saveStory
     // for every story now — must NOT crash the tick and must NOT silently
     // no-op via the generic hook-mode catch-all; it allows the stop with the
@@ -310,15 +316,37 @@ describe("tick: session ownership + terminal decisions", () => {
     const r = await tick("sess-1", { root });
     expect(r.decision).toBe("allow");
     expect(r.summary).toMatch(/cannot run/i);
-    expect(r.summary).toMatch(/story-state\.local\.json/);
+    expect(r.summary).toMatch(/state\.json/);
   });
 
-  it("allows with a board summary when the iteration budget is exhausted", async () => {
+  it("resets the stall counter when the board changed since the last tick", async () => {
     const root = await makeRoot();
-    writeLoopState(root, { ...baseState(), iteration: 10 });
+    writeLoopState(root, { ...baseState(), stalls: 2, progress_marker: "mstale" });
     const r = await runTick({ root });
+    expect(r.decision).toBe("block");
+    const state = readLoopState(root, "sess-1")!;
+    expect(state.stalls).toBe(0);
+    expect(state.progress_marker).toMatch(/^m[0-9a-f]{16}$/);
+    expect(r.status).toBe("story st-a1b2 · iteration 3 · stalls 0/3");
+  });
+
+  it("counts an unchanged board as a stall and blocks while under budget", async () => {
+    const root = await makeRoot();
+    const stories = [sampleStory()];
+    writeLoopState(root, { ...baseState(), stalls: 1, progress_marker: progressMarker(stories) });
+    const r = await runTick({ root, stories });
+    expect(r.decision).toBe("block");
+    expect(readLoopState(root, "sess-1")!.stalls).toBe(2);
+    expect(r.status).toBe("story st-a1b2 · iteration 3 · stalls 2/3");
+  });
+
+  it("ends the run with a board summary when the stall budget is exhausted", async () => {
+    const root = await makeRoot();
+    const stories = [sampleStory()];
+    writeLoopState(root, { ...baseState(), stalls: 2, progress_marker: progressMarker(stories) });
+    const r = await runTick({ root, stories });
     expect(r.decision).toBe("allow");
-    expect(r.summary).toMatch(/budget exhausted/i);
+    expect(r.summary).toMatch(/Stall budget exhausted \(3 consecutive ticks without board progress\)/);
     expect(existsSync(loopStatePath(root, "sess-1"))).toBe(false);
   });
 
@@ -356,7 +384,7 @@ describe("tick: session ownership + terminal decisions", () => {
     expect(r.reason).toContain("st-a1b2 - Sample story");
     expect(r.reason).toContain("- [ ] bun test passes");
     expect(r.reason).toContain("prefer bun test");
-    expect(r.systemMessage).toBe("story st-a1b2 · iteration 3/10");
+    expect(r.status).toBe("story st-a1b2 · iteration 3 · stalls 0/3");
     const after = readLoopState(root, "sess-1")!;
     expect(after.iteration).toBe(3);
     expect(after.attempts).toEqual({ "st-a1b2": 1 });
@@ -408,22 +436,30 @@ describe("tick: doctor + budgets + goal scope", () => {
     expect(existsSync(loopStatePath(root, "sess-1"))).toBe(false);
   });
 
-  it("blocks with repair instructions on hard board corruption (and still burns budget)", async () => {
+  it("blocks with repair instructions on hard board corruption, and repeated repair blocks exhaust the stall budget", async () => {
     const root = await makeRoot();
     writeLoopState(root, baseState());
-    const r = await runTick({
-      root,
-      doctor: () => ({
-        ok: false,
-        issues: [{ kind: "dangling-dep", hard: true, detail: "st-dead depends on missing st-beef" }],
-        fixed: [],
-      }),
+    const hardDoctor = () => ({
+      ok: false,
+      issues: [{ kind: "dangling-dep", hard: true, detail: "st-dead depends on missing st-beef" }],
+      fixed: [],
     });
+    const r = await runTick({ root, doctor: hardDoctor });
     expect(r.decision).toBe("block");
     expect(r.reason).toContain("st-dead depends on missing st-beef");
     expect(r.reason).toContain("story doctor --fix");
-    expect(r.systemMessage).toBe("story doctor · iteration 3/10");
+    expect(r.status).toBe("story doctor · iteration 3 · stalls 0/3"); // first sighting of this board: no stall yet
     expect(readLoopState(root, "sess-1")!.iteration).toBe(3);
+
+    // The board never changes, so every further repair block is a stall.
+    const second = await runTick({ root, doctor: hardDoctor });
+    expect(second.decision).toBe("block");
+    expect(second.status).toBe("story doctor · iteration 4 · stalls 1/3");
+    await runTick({ root, doctor: hardDoctor });
+    const last = await runTick({ root, doctor: hardDoctor });
+    expect(last.decision).toBe("allow");
+    expect(last.summary).toMatch(/Stall budget exhausted \(3 consecutive ticks/);
+    expect(existsSync(loopStatePath(root, "sess-1"))).toBe(false);
   });
 
   it("falls back to the issue kind when a hard issue carries no detail", async () => {
@@ -453,12 +489,12 @@ describe("tick: doctor + budgets + goal scope", () => {
   it("tick auto-fixes merged-local: an in-review story whose branch landed on main flips to done", async () => {
     const root = await makeGitRoot({ merge: "local" });
     await writeFile(join(root, "stories/st-4e6d-merged.md"), diskStory("st-4e6d", "Merged story", "in-review"));
-    const wt = join(root, ".worktrees/st-4e6d");
-    gitq(root, "worktree", "add", "-q", "-b", "story/st-4e6d", wt, "main");
+    const wt = worktreePath(root, "st-4e6d");
+    gitq(root, "worktree", "add", "-q", "-b", branchName("st-4e6d"), wt, "main");
     await writeFile(join(wt, "reviewed.ts"), "x");
     gitq(wt, "add", "reviewed.ts");
     gitq(wt, "commit", "-qm", "work");
-    gitq(root, "merge", "--no-ff", "-q", "story/st-4e6d", "-m", "human merge");
+    gitq(root, "merge", "--no-ff", "-q", branchName("st-4e6d"), "-m", "human merge");
     writeLoopState(root, baseState());
     const r = await tick("sess-1", { root }); // DEFAULT collaborators — the real runDoctor fixes, then the tick sees it
     expect(r.decision).toBe("allow");
@@ -486,23 +522,23 @@ describe("tick: doctor + budgets + goal scope", () => {
 
 describe("loop CLI subcommands", () => {
   it("start writes state with the config-default budget; a second start fails", async () => {
-    const root = await makeRoot({ budgets: { maxIterations: 7, maxFixRoundsPerStory: 3 } });
+    const root = await makeRoot({ budgets: { maxStalls: 7, maxFixRoundsPerStory: 3 } });
     const r = await runLoopCommand(["start", "--goal", "epic:st-9c01", "--session", "test-session"], { root });
-    expect(r).toMatchObject({ started: true, goal: "epic:st-9c01", iteration: 0, max_iterations: 7 });
+    expect(r).toMatchObject({ started: true, goal: "epic:st-9c01", iteration: 0, stalls: 0, max_stalls: 7 });
     expect(readLoopState(root, "test-session")!.goal).toBe("epic:st-9c01");
     await expect(runLoopCommand(["start", "--session", "test-session"], { root })).rejects.toThrow(/already active/);
   });
 
   it("start accepts --key=value syntax (shared cli.mjs parser, not the old weaker one)", async () => {
-    const root = await makeRoot({ budgets: { maxIterations: 7, maxFixRoundsPerStory: 3 } });
-    const r = await runLoopCommand(["start", "--goal=epic:st-9c01", "--max-iterations=3", "--session=test-session"], { root });
-    expect(r).toMatchObject({ started: true, goal: "epic:st-9c01", max_iterations: 3 });
+    const root = await makeRoot({ budgets: { maxStalls: 7, maxFixRoundsPerStory: 3 } });
+    const r = await runLoopCommand(["start", "--goal=epic:st-9c01", "--max-stalls=3", "--session=test-session"], { root });
+    expect(r).toMatchObject({ started: true, goal: "epic:st-9c01", max_stalls: 3 });
   });
 
-  it("start --max-iterations overrides config", async () => {
+  it("start --max-stalls overrides config", async () => {
     const root = await makeRoot();
-    const r = await runLoopCommand(["start", "--max-iterations", "3", "--session", "test-session"], { root });
-    expect(r.max_iterations).toBe(3);
+    const r = await runLoopCommand(["start", "--max-stalls", "3", "--session", "test-session"], { root });
+    expect(r.max_stalls).toBe(3);
   });
 
   it("start without a session id is refused", async () => {
@@ -553,58 +589,38 @@ describe("loop CLI subcommands", () => {
     expect(await runLoopCommand(["stop", "--session", "sess-1"], { root })).toEqual({ stopped: false });
   });
 
-  it("stop --all removes every loop file plus the legacy file", async () => {
+  it("stop --all removes every loop file and leaves no temp files behind", async () => {
     const root = await makeRoot();
     writeLoopState(root, baseState());
     writeLoopState(root, { ...baseState(), session_id: "sess-2" });
-    await writeFile(legacyLoopPath(root), "---\ngoal: g\niteration: 1\nmax_iterations: 10\n---\n");
     expect(await runLoopCommand(["stop", "--all"], { root })).toEqual({ stopped: true });
     expect(listLoopStates(root)).toEqual([]);
-    expect(existsSync(legacyLoopPath(root))).toBe(false);
   });
 
   it("stop without --all or a session throws", async () => {
     await expect(runLoopCommand(["stop"], { root: await makeRoot() })).rejects.toThrow(/--session|--all/);
   });
 
-  it("tick removes a legacy shared loop file and allows", async () => {
-    const root = await makeRoot();
-    await writeFile(legacyLoopPath(root), "---\ngoal: g\niteration: 1\nmax_iterations: 10\n---\n");
-    const r = await tick("any-session", { root });
-    expect(r.decision).toBe("allow");
-    expect(r.summary).toMatch(/legacy.*loop state removed/i);
-    expect(existsSync(legacyLoopPath(root))).toBe(false);
-  });
-
-  it("tick --hook shapes a block into Stop-hook JSON", async () => {
+  it("tick returns the neutral decision directly (no hook envelope)", async () => {
     const root = await makeRoot();
     writeLoopState(root, { ...baseState(), attempts: {} });
-    const out = await runLoopCommand(["tick", "--hook"], {
+    const out = await runLoopCommand(["tick", "--session", "sess-1"], {
       root,
-      stdinText: JSON.stringify({ session_id: "sess-1", hook_event_name: "Stop", stop_hook_active: false }),
       tickDeps: { loadStories: () => [sampleStory()], computeReady: todoReady, doctor: okDoctor, readLearnings: () => "" },
     });
     expect(out.decision).toBe("block");
     expect(out.reason).toContain("st-a1b2");
-    expect(out.systemMessage).toBe("story st-a1b2 · iteration 3/10");
+    expect(out.status).toMatch(/^story st-a1b2 · iteration 3/);
   });
 
-  it("tick --hook maps allow-with-summary onto systemMessage only", async () => {
+  it("tick allows with an explanatory summary when the engine throws", async () => {
     const root = await makeRoot();
-    writeLoopState(root, { ...baseState(), iteration: 10 });
-    const out = await runLoopCommand(["tick", "--hook"], {
+    writeLoopState(root, baseState());
+    const out = await runLoopCommand(["tick", "--session", "sess-1"], {
       root,
-      stdinText: JSON.stringify({ session_id: "sess-1" }),
-      tickDeps: { loadStories: () => [sampleStory()], computeReady: todoReady, doctor: okDoctor, readLearnings: () => "" },
+      tickDeps: { loadStories: () => [sampleStory()], computeReady: () => { throw new Error("boom"); }, doctor: okDoctor, readLearnings: () => "" },
     });
-    expect(out.decision).toBeUndefined();
-    expect(out.systemMessage).toMatch(/budget exhausted/i);
-  });
-
-  it("tick --hook returns {} on garbage stdin and never throws", async () => {
-    const root = await makeRoot();
-    const out = await runLoopCommand(["tick", "--hook"], { root, stdinText: "not json" });
-    expect(out).toEqual({});
+    expect(out).toEqual({ decision: "allow", summary: "Story loop tick failed: boom" });
   });
 
   it("learn appends to the shared learnings file (design §6 cross-pollination)", async () => {

@@ -6,7 +6,7 @@ import { createWorkspace } from "../utils/workspace-manager";
 import { checkSkillActivation } from "../utils/skill-activation";
 import { selectHarnesses, type Harness } from "../utils/harness";
 import { paritySubset, smokeSubset } from "../utils/parity";
-import { STORIES_ROOT, WRITING_ROOTS } from "../utils/paths";
+import { STORIES_ROOTS, WRITING_ROOTS } from "../utils/paths";
 
 const TRIALS = 3;
 const REQUIRED_PASSES = 2;
@@ -62,7 +62,7 @@ function runActivationSuite(harness: Harness) {
   const grouped = groupTests(selectCases());
   // Each harness installs from its own plugin dir (see Harness.pluginRoot for why). The
   // writing plugin joins only for its own cases so other skills are measured without it.
-  const basePluginDirs = [harness.pluginRoot, STORIES_ROOT];
+  const basePluginDirs = [harness.pluginRoot, STORIES_ROOTS[harness.id]];
   const pluginDirsFor = (skill: string): string[] =>
     skill.startsWith("writing:") ? [...basePluginDirs, WRITING_ROOTS[harness.id]] : basePluginDirs;
 

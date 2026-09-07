@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fetchDetails } from "../../plugins/stories/lib/github.mjs";
+import { fetchDetails } from "../../shared/stories/lib/github.mjs";
 import { fail, makeFakeExec, ok } from "./gh-helpers.ts";
 import { prDetail } from "./gh-fixtures.ts";
 

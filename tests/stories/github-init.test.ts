@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { ensurePrRequirements } from "../../plugins/stories/lib/github.mjs";
-import { run } from "../../plugins/stories/lib/util.mjs";
+import { ensurePrRequirements } from "../../shared/stories/lib/github.mjs";
+import { configPath, run } from "../../shared/stories/lib/util.mjs";
 import { fail, makeFakeExec, makePrRepo, ok } from "./gh-helpers.ts";
 import { makeRepo, runStory } from "./helpers";
 
@@ -53,7 +52,7 @@ describe("story init --merge pr wiring", () => {
   test("failing probes abort init with a CliError-formatted error and write NOTHING", async () => {
     const repo = await makeRepo();
     const { rm } = await import("node:fs/promises");
-    await rm(join(repo.root, ".claude/story-workflow.json"));
+    await rm(configPath(repo.root));
     // Passthrough exec: real git for rev-parse etc., fake the probe commands.
     const exec = (cmd: string, args: string[] = [], opts: Record<string, unknown> = {}) => {
       const line = [cmd, ...args].join(" ");
@@ -64,7 +63,7 @@ describe("story init --merge pr wiring", () => {
     const r = await runStory(repo.root, ["init", "--merge", "pr"], { exec });
     expect(r.code).toBe(1);
     expect(JSON.parse(r.stderr).error).toContain("origin");
-    expect(existsSync(join(repo.root, ".claude/story-workflow.json"))).toBe(false); // all-or-nothing
+    expect(existsSync(configPath(repo.root))).toBe(false); // all-or-nothing
     await repo.cleanup();
   });
 });

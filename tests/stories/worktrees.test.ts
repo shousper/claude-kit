@@ -11,7 +11,8 @@ import {
   reconcileTouches,
   teardown,
   worktreePath,
-} from "../../plugins/stories/lib/worktrees.mjs";
+  worktreesRoot,
+} from "../../shared/stories/lib/worktrees.mjs";
 import { makeRepo, type Repo } from "./helpers";
 
 const gitIn = (repo: Repo, cwd: string, ...args: string[]) => {
@@ -25,9 +26,9 @@ describe("createWorktree", () => {
   test("creates .worktrees/<id> on branch story/<id> off main", async () => {
     const repo = await makeRepo();
     const path = createWorktree(repo.root, "st-4f2a");
-    expect(path).toBe(join(repo.root, ".worktrees", "st-4f2a"));
+    expect(path).toBe(worktreePath(repo.root, "st-4f2a"));
     expect(existsSync(path)).toBe(true);
-    expect(gitIn(repo, path, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("story/st-4f2a");
+    expect(gitIn(repo, path, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe(branchName("st-4f2a"));
     await repo.cleanup();
   });
 
@@ -38,7 +39,7 @@ describe("createWorktree", () => {
     // simulate feedback round: worktree torn down, branch kept
     gitIn(repo, repo.root, "worktree", "remove", "--force", worktreePath(repo.root, "st-4f2a"));
     const path = createWorktree(repo.root, "st-4f2a");
-    expect(gitIn(repo, path, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("story/st-4f2a");
+    expect(gitIn(repo, path, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe(branchName("st-4f2a"));
     await repo.cleanup();
   });
 });
@@ -80,7 +81,7 @@ describe("actualDiff", () => {
       stdout: "",
       stderr: `fatal: bad revision '${args.join(" ")}'`,
     });
-    expect(() => actualDiff(repo.root, "st-4f2a", { exec: failingExec })).toThrow(/failed \(128\)/);
+    expect(() => actualDiff(repo.root, "st-4f2a", { exec: failingExec })).toThrow(/failed \(exit 128\)/);
     await repo.cleanup();
   });
 });
@@ -108,7 +109,7 @@ describe("integrateSelf", () => {
     expect(locked).toEqual(["merge"]);
     expect(existsSync(join(repo.root, "feature.ts"))).toBe(true); // landed on main
     expect(existsSync(worktreePath(repo.root, "st-4f2a"))).toBe(false);
-    expect(gitIn(repo, repo.root, "branch", "--list", "story/st-4f2a").trim()).toBe("");
+    expect(gitIn(repo, repo.root, "branch", "--list", branchName("st-4f2a")).trim()).toBe("");
     expect(gitIn(repo, repo.root, "log", "-1", "--format=%s")).toContain("story st-4f2a");
     await repo.cleanup();
   });
@@ -146,7 +147,7 @@ describe("isMergedLocal", () => {
     gitIn(repo, wt, "add", "f.ts");
     gitIn(repo, wt, "commit", "-m", "f");
     expect(isMergedLocal(repo.root, "st-4f2a")).toBe(false);
-    gitIn(repo, repo.root, "merge", "--no-ff", "story/st-4f2a", "-m", "human merge");
+    gitIn(repo, repo.root, "merge", "--no-ff", branchName("st-4f2a"), "-m", "human merge");
     expect(isMergedLocal(repo.root, "st-4f2a")).toBe(true);
     expect(isMergedLocal(repo.root, "st-0000")).toBe(false); // no branch at all
     await repo.cleanup();
@@ -159,7 +160,7 @@ describe("teardown", () => {
     createWorktree(repo.root, "st-4f2a");
     teardown(repo.root, "st-4f2a");
     expect(existsSync(worktreePath(repo.root, "st-4f2a"))).toBe(false);
-    expect(gitIn(repo, repo.root, "branch", "--list", "story/st-4f2a").trim()).toBe("");
+    expect(gitIn(repo, repo.root, "branch", "--list", branchName("st-4f2a")).trim()).toBe("");
     mkdirSync(worktreePath(repo.root, "st-dead"), { recursive: true }); // orphan dir, not a git worktree
     teardown(repo.root, "st-dead");
     expect(existsSync(worktreePath(repo.root, "st-dead"))).toBe(false);
@@ -168,7 +169,7 @@ describe("teardown", () => {
 
   test("refuses the destructive rm when the worktree entry escapes .worktrees (symlink)", async () => {
     const repo = await makeRepo();
-    mkdirSync(join(repo.root, ".worktrees"), { recursive: true });
+    mkdirSync(worktreesRoot(repo.root), { recursive: true });
     // A .worktrees/<id> that is a symlink to a dir OUTSIDE the project. git
     // worktree remove will fail (unregistered), so teardown falls to rmSync —
     // which must refuse because the real path escapes <root>/.worktrees/.

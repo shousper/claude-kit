@@ -166,14 +166,18 @@ export async function run(args, hostOverride) {
   // stage(): spawn one agent, wait for it, journal the result. Never throws — a rejected
   // wait (agent failed, off-schema output, cancelled) or a stage timeout becomes
   // { ok: false } naming the agent id, and the caller turns that into a `blocked` return.
-  // The label becomes the agent id (so `history://<id>` reaches the transcript); labels use
-  // hyphens because ':' is the read-selector separator in agent:// URLs.
-  const stage = async (batchIndex, label, prompt, opts) => {
-    const prior = journal.stages[label]
+  // The journal is keyed by the bare stage name; the agent label is `<slug>-<stage>` when a
+  // slug is set, because agent ids are session-wide and a second run in the same session
+  // would otherwise have its `impl-T1` uniquified to `impl-T1-2` (and `history://impl-T1`
+  // would name the earlier run). Labels use hyphens because ':' is the read-selector
+  // separator in agent:// URLs.
+  const stage = async (batchIndex, name, prompt, opts) => {
+    const prior = journal.stages[name]
     if (prior && typeof prior === 'object' && 'value' in prior) {
-      log(`${label}: replaying journaled result`)
+      log(`${name}: replaying journaled result`)
       return { ok: true, value: prior.value }
     }
+    const label = SLUG ? `${SLUG}-${name}` : name
     let handle
     try {
       handle = await agent(prompt, { ...opts, label })
@@ -183,7 +187,7 @@ export async function run(args, hostOverride) {
     const id = handle && handle.id ? handle.id : label
     try {
       const value = await handle.wait({ timeout: STAGE_TIMEOUT_SECONDS })
-      journal.stages[label] = { batch: batchIndex, value: value ?? null }
+      journal.stages[name] = { batch: batchIndex, value: value ?? null }
       await saveJournal()
       return { ok: true, value }
     } catch (e) {

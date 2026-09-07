@@ -8,7 +8,7 @@ import {
   saveStory,
   slugify,
   storiesDir,
-} from "../../plugins/stories/lib/board.mjs";
+} from "../../shared/stories/lib/board.mjs";
 import { makeRepo, storyText, writeStoryFile } from "./helpers";
 
 const CONFIG = { storiesDir: "stories" };

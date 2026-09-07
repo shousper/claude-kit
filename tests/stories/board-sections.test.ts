@@ -5,8 +5,8 @@ import {
   getSection,
   readBodySection,
   setSection,
-} from "../../plugins/stories/lib/board.mjs";
-import { CliError } from "../../plugins/stories/lib/util.mjs";
+} from "../../shared/stories/lib/board.mjs";
+import { CliError } from "../../shared/stories/lib/util.mjs";
 
 const BODY = [
   "## Description", "", "A sample.", "",
@@ -16,7 +16,7 @@ const BODY = [
 
 describe("readBodySection", () => {
   test("returns the section body, stopping at the next H2", () => {
-    expect(readBodySection(BODY, "Acceptance Criteria")).toBe(
+    expect(readBodySection(BODY, "## Acceptance Criteria")).toBe(
       "- [ ] bun test passes\n- [ ] CLI prints the id",
     );
   });
@@ -24,20 +24,20 @@ describe("readBodySection", () => {
   test("matches the heading case-insensitively (the latent-bug fix)", () => {
     // A '## acceptance criteria' heading must be found regardless of case —
     // the case-SENSITIVE PR-body reader used to silently skip it.
-    expect(readBodySection(BODY, "acceptance criteria")).toContain("bun test passes");
-    expect(readBodySection(BODY, "ACCEPTANCE CRITERIA")).toContain("CLI prints the id");
+    expect(readBodySection(BODY, "## acceptance criteria")).toContain("bun test passes");
+    expect(readBodySection(BODY, "## ACCEPTANCE CRITERIA")).toContain("CLI prints the id");
   });
 
   test("finds a section whose stored heading is lower-cased", () => {
     const lower = "## acceptance criteria\n\n- [ ] done when green\n";
-    expect(readBodySection(lower, "Acceptance Criteria")).toBe("- [ ] done when green");
+    expect(readBodySection(lower, "## Acceptance Criteria")).toBe("- [ ] done when green");
   });
 
   test("returns '' for a missing section or empty/undefined body", () => {
-    expect(readBodySection(BODY, "Implementation Plan")).toBe("");
-    expect(readBodySection("", "Questions")).toBe("");
-    expect(readBodySection(undefined, "Questions")).toBe("");
-    expect(readBodySection(null, "Questions")).toBe("");
+    expect(readBodySection(BODY, "## Implementation Plan")).toBe("");
+    expect(readBodySection("", "## Questions")).toBe("");
+    expect(readBodySection(undefined, "## Questions")).toBe("");
+    expect(readBodySection(null, "## Questions")).toBe("");
   });
 });
 

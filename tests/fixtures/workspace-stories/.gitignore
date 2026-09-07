@@ -1,4 +1,2 @@
 .worktrees/
-.claude/*.local.*
-.claude/locks/
-.claude/story-evidence/
+.agents/shousper-stories/local/

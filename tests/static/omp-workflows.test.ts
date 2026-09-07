@@ -415,7 +415,7 @@ describe("build-flow OMP runner: journal and resume", () => {
     );
     expect(first.status).toBe("blocked");
     expect(first.blockedAtBatch).toBe(1);
-    expect(first.reason).toContain("verify-r1");
+    expect(first.reason).toContain("demo-verify-r1");
 
     const state = JSON.parse(files.get(STATE)!);
     expect(state.status).toBe("blocked");
@@ -425,7 +425,7 @@ describe("build-flow OMP runner: journal and resume", () => {
 
     const second = await runFlow({ slug: "demo", batches: [[task("a")], [task("b")]] }, allClean, files);
     expect(second.status).toBe("done");
-    expect(second.host.spawned).toEqual(["verify-r1"]);
+    expect(second.host.spawned).toEqual(["demo-verify-r1"]);
     expect(second.results).toHaveLength(2);
     expect(second.ledger?.decisions).toHaveLength(3);
     expect(JSON.parse(files.get(STATE)!).status).toBe("done");
@@ -445,7 +445,7 @@ describe("build-flow OMP runner: journal and resume", () => {
 
     const second = await runFlow({ slug: "demo", batches: [[task("a")], [task("b")]] }, allClean, files);
     expect(second.status).toBe("done");
-    expect(second.host.spawned).toEqual(["impl-b", "spec-b2", "quality-b2", "verify-r1"]);
+    expect(second.host.spawned).toEqual(["demo-impl-b", "demo-spec-b2", "demo-quality-b2", "demo-verify-r1"]);
   });
 
   it("does not duplicate ledger decisions when a verify-phase block is relaunched with the returned ledger", async () => {
@@ -468,7 +468,7 @@ describe("build-flow OMP runner: journal and resume", () => {
       files,
     );
     expect(second.status).toBe("done");
-    expect(second.host.spawned).toEqual(["verify-r1"]);
+    expect(second.host.spawned).toEqual(["demo-verify-r1"]);
     expect(second.ledger?.decisions).toEqual([
       expect.stringMatching(/^Batch 1 \(a\)/),
       expect.stringMatching(/^Batch 2 \(b\)/),
@@ -481,7 +481,8 @@ describe("build-flow OMP runner: journal and resume", () => {
     const first = await runFlow({ slug: "demo", batches: [[task("a")]] }, allClean, files);
     expect(first.status).toBe("done");
     const second = await runFlow({ slug: "demo", batches: [[task("a")]] }, allClean, files);
-    expect(second.host.spawned).toEqual(["impl-a", "spec-b1", "quality-b1", "verify-r1"]);
+    // Agent ids carry the slug (session-wide uniqueness); journal keys do not.
+    expect(second.host.spawned).toEqual(["demo-impl-a", "demo-spec-b1", "demo-quality-b1", "demo-verify-r1"]);
   });
 
   it("journals nothing without a slug", async () => {
@@ -560,6 +561,27 @@ describe("code-review OMP runner", () => {
     expect(result.failed).toEqual([{ id: "review-correctness", error: "provider 429" }]);
     expect(result.findings.map((f) => f.issue)).toEqual(["leaks a handle"]);
     expect(host.cancelled).toEqual(["review-correctness"]);
+  });
+
+  it("reports the ids actually spawned in `agents`, and a slug keeps a second review in the same session from colliding", async () => {
+    type Result = { status: string; agents: Record<string, string> };
+    const host = fakeHost(reviewRespond);
+    const first = (await runCodeReview({ diffRef: "main" }, host)) as Result;
+    expect(first.agents["review-correctness"]).toBe("review-correctness");
+    expect(first.agents["verify-correctness-1"]).toBe("verify-correctness-1");
+
+    // Same host, bare labels again: the runtime uniquifies, and `agents` says so.
+    const second = (await runCodeReview({ diffRef: "main" }, host)) as Result;
+    expect(second.agents["review-correctness"]).toBe("review-correctness-2");
+
+    // A slug namespaces every label, so nothing collides and the map is the identity.
+    const scoped = (await runCodeReview({ diffRef: "main", slug: "delta.1" }, host)) as Result;
+    expect(Object.keys(scoped.agents)).toEqual([
+      "delta.1-review-correctness", "delta.1-review-quality", "delta.1-review-tests", "delta.1-review-security", "delta.1-review-architecture",
+      "delta.1-verify-correctness-1", "delta.1-verify-quality-2",
+    ]);
+    expect(Object.entries(scoped.agents).every(([label, id]) => label === id)).toBe(true);
+    expect(scoped.status).toBe("done");
   });
 
   it("blocks before spawning when called with the retired run(host, args) shape", async () => {

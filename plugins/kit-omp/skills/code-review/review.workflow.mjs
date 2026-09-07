@@ -10,7 +10,8 @@ export const meta = {
 // Host bridges: bound from the eval kernel's globals exactly as in build.workflow.mjs
 // (see the comment there). run(args, hostOverride?) — never pass a host as the first argument.
 
-// args: { diffRef?: string, reviewDims?: {key,focus,agent}[], ledger?: object, stageTimeoutMinutes?: number }
+// args: { diffRef?: string, slug?: string, reviewDims?: {key,focus,agent}[], ledger?: object, stageTimeoutMinutes?: number }
+// returns: { status, diffRef, findings, agents: { [label]: spawnedId }, failed? }
 
 const WORKER = 'kit-worker'
 const ARBITER = 'kit-arbiter'
@@ -77,6 +78,13 @@ export async function run(args, hostOverride) {
   const ledgerText = a.ledger ? JSON.stringify(a.ledger) : 'none'
   const STAGE_TIMEOUT_MINUTES = Number.isFinite(a.stageTimeoutMinutes) && a.stageTimeoutMinutes > 0 ? a.stageTimeoutMinutes : 60
   const STAGE_TIMEOUT_SECONDS = Math.round(STAGE_TIMEOUT_MINUTES * 60)
+  // Agent ids are session-wide, so a second review in the same session reusing the bare
+  // labels gets them uniquified (`review-correctness-2`) and `history://review-correctness`
+  // then names the FIRST run. A slug namespaces this run's labels; either way the ids
+  // actually spawned come back in `agents` so the caller never has to guess.
+  const SLUG = typeof a.slug === 'string' && /^[A-Za-z0-9._-]+$/.test(a.slug) ? a.slug : null
+  const labelFor = (name) => (SLUG ? `${SLUG}-${name}` : name)
+  const agents = {}
   // kit-worker-first: measured across 6 weeks of runs, 69% of review agents return zero
   // actionable findings — kit-arbiter everywhere was paying frontier rates for "LGTM".
   // Architecture keeps kit-arbiter as the one deep-judgment safety net.
@@ -92,7 +100,8 @@ export async function run(args, hostOverride) {
   // the stage yields null, so one dead reviewer degrades the review to `partial` instead of
   // losing every other dimension's work.
   const failed = []
-  const stage = async (label, prompt, opts) => {
+  const stage = async (name, prompt, opts) => {
+    const label = labelFor(name)
     let handle
     try {
       handle = await agent(prompt, { ...opts, label })
@@ -101,6 +110,7 @@ export async function run(args, hostOverride) {
       return null
     }
     const id = handle && handle.id ? handle.id : label
+    agents[label] = id
     try {
       return await handle.wait({ timeout: STAGE_TIMEOUT_SECONDS })
     } catch (e) {
@@ -146,6 +156,6 @@ export async function run(args, hostOverride) {
     .map((f, i) => ({ ...f, verified: !!(verdicts[i] && verdicts[i].real) }))
     .filter((f) => f.verified)
   return failed.length > 0
-    ? { status: 'partial', diffRef, findings, failed }
-    : { status: 'done', diffRef, findings }
+    ? { status: 'partial', diffRef, findings, failed, agents }
+    : { status: 'done', diffRef, findings, agents }
 }

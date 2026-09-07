@@ -17,7 +17,14 @@ export const CODE_STANDARDS_DIR = resolve(SHARED_ROOT, "code-standards");
 export const KIT_CLAUDE_ROOT = resolve(ROOT, "plugins/kit-claude");
 export const KIT_CLAUDE_HOOKS_DIR = resolve(KIT_CLAUDE_ROOT, "hooks");
 export const KIT_OMP_ROOT = resolve(ROOT, "plugins/kit-omp");
-export const STORIES_ROOT = resolve(ROOT, "plugins/stories");
+// Stories: content authored once under shared/stories/ (bin, lib, skills, README) and
+// symlinked into plugins/stories-claude and plugins/stories-omp.
+export const STORIES_ROOT = resolve(SHARED_ROOT, "stories");
+export const STORIES_LIB_DIR = resolve(STORIES_ROOT, "lib");
+export const STORIES_SKILLS_DIR = resolve(STORIES_ROOT, "skills");
+export const STORIES_CLAUDE_ROOT = resolve(ROOT, "plugins/stories-claude");
+export const STORIES_OMP_ROOT = resolve(ROOT, "plugins/stories-omp");
+export const STORIES_ROOTS: Record<"claude" | "omp", string> = { claude: STORIES_CLAUDE_ROOT, omp: STORIES_OMP_ROOT };
 
 export const MARKETPLACE_DIR = resolve(ROOT, ".claude-plugin");
 export const OMP_MARKETPLACE_DIR = resolve(ROOT, ".omp-plugin");

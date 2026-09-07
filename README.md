@@ -2,8 +2,8 @@
 
 A Claude Code plugin marketplace hosting three plugins:
 
-- **`kit`** (`plugins/kit/`) — a complete development workflow, from brainstorming ideas through design, implementation, code review, and branch completion.
-- **`stories`** (`plugins/stories/`) — a story-based autonomous workflow built on kit: a repo-native markdown story board with typed verification gates and a goal loop that works the board until it is drained. See [plugins/stories/README.md](plugins/stories/README.md).
+- **`kit`** (`plugins/kit-claude/`, `plugins/kit-omp/`) — a complete development workflow, from brainstorming ideas through design, implementation, code review, and branch completion.
+- **`stories`** (`plugins/stories-claude/`, `plugins/stories-omp/`) — a story-based autonomous workflow built on kit: a repo-native markdown story board with typed verification gates and a goal loop that works the board until it is drained. Each plugin's README covers its harness; the shared guide is [shared/stories/README.md](shared/stories/README.md).
 - **`writing`** (`plugins/writing-claude/`, `plugins/writing-omp/`) — an opt-in developer-documentation writing voice for every reply and file, a documentation-authoring skill, and an advisory Vale lint hook. Independent of kit.
 
 The remainder of this README documents `kit`.
@@ -145,12 +145,13 @@ Resumable — tracks state in `~/.claude-mem/backfill-state.json`. Safe to inter
 
 ## Releases
 
-The two plugins version and release independently. Tags follow the `<plugin>--vX.Y.Z` naming convention on `main` (first tags land when each plugin next releases — e.g. `kit--v1.2.0`, `stories--v0.1.0`):
+The plugins version and release independently. Tags follow the `<plugin>--vX.Y.Z` naming convention on `main`:
 
-- **kit** — version lives in `plugins/kit/.claude-plugin/plugin.json` and the marketplace entry
-- **stories** — version lives in `plugins/stories/.claude-plugin/plugin.json` and the marketplace entry
+- **kit** — `plugins/kit-claude/.claude-plugin/plugin.json` (`kit-claude--vX.Y.Z`) and `plugins/kit-omp/.omp-plugin/plugin.json` (`kit-omp--vX.Y.Z`)
+- **stories** — `plugins/stories-claude/.claude-plugin/plugin.json` (`stories-claude--vX.Y.Z`) and `plugins/stories-omp/.omp-plugin/plugin.json` (`stories-omp--vX.Y.Z`)
+- **writing** — `plugins/writing-claude/.claude-plugin/plugin.json` and `plugins/writing-omp/.omp-plugin/plugin.json`
 
-To release: bump the version in the plugin's `plugin.json` **and** its `.claude-plugin/marketplace.json` entry, merge, then tag the merge commit.
+To release: bump the version in the plugin's manifest **and** its catalogue entry (`.claude-plugin/marketplace.json` for a Claude plugin, `.omp-plugin/marketplace.json` for an OMP plugin), merge, then tag the merge commit.
 
 ## Credits
 

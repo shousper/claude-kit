@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseStory, serializeStory } from "../../plugins/stories/lib/board.mjs";
+import { parseStory, serializeStory } from "../../shared/stories/lib/board.mjs";
 
 // Canonical fixture — field order matches the serializer's FIELD_ORDER.
 export const CANONICAL = `---

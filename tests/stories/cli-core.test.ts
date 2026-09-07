@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseArgv } from "../../plugins/stories/lib/cli.mjs";
-import { makeRepo, runStory } from "./helpers";
+import { parseArgv } from "../../shared/stories/lib/cli.mjs";
+import { ARCHIVE_DIR, GITIGNORE_BLOCK, configPath } from "../../shared/stories/lib/util.mjs";
+import { CONFIG_DEFAULTS } from "../../shared/stories/lib/board.mjs";
+import { makeRepo, makeTmpDir, runStory } from "./helpers";
 
 describe("parseArgv", () => {
   test("splits command, positionals, flags", () => {
@@ -39,14 +41,13 @@ describe("error convention", () => {
   test("commands outside a story project fail with guidance", async () => {
     // A dir outside ANY git repo — a subdir of the fixture would inherit
     // its marker config via findRoot's git-common-dir walk.
-    const { mkdtemp, realpath, rm } = await import("node:fs/promises");
-    const { tmpdir } = await import("node:os");
-    const bare = await realpath(await mkdtemp(join(tmpdir(), "no-repo-")));
+    const { rm } = await import("node:fs/promises");
+    const bare = await makeTmpDir("no-repo-");
     const r = await runStory(bare, ["list"]);
     expect(r.code).toBe(1);
     // Until B23 registers `list`, dispatch rejects it first ("unknown command");
     // once `list` exists, findRoot rejects the bare dir. Both are correct failures here.
-    expect(JSON.parse(r.stderr).error).toMatch(/not inside a git repository|story-workflow\.json|unknown command/);
+    expect(JSON.parse(r.stderr).error).toMatch(/not inside a git repository|config\.json|unknown command/);
     await rm(bare, { recursive: true, force: true });
   });
 });
@@ -56,19 +57,17 @@ describe("story init", () => {
     const repo = await makeRepo();
     // makeRepo already wrote the marker — use a fresh repo without it.
     const { rm } = await import("node:fs/promises");
-    await rm(join(repo.root, ".claude/story-workflow.json"));
+    await rm(configPath(repo.root));
     const r = await runStory(repo.root, ["init", "--merge", "local", "--test-command", "bun test", "--json"]);
     expect(r.code).toBe(0);
-    const config = JSON.parse(readFileSync(join(repo.root, ".claude/story-workflow.json"), "utf8"));
+    const config = JSON.parse(readFileSync(configPath(repo.root), "utf8"));
     expect(config.merge).toBe("local");
     expect(config.gates.test).toEqual({ kind: "command", run: "bun test" });
     expect(config.gateLock).toBe(true);
-    expect(existsSync(join(repo.root, "stories/archive"))).toBe(true);
+    expect(existsSync(join(repo.root, CONFIG_DEFAULTS.storiesDir, ARCHIVE_DIR))).toBe(true);
     // The canonical project-side ignore block (ratified) — byte-identical in
     // cmdInit, the stories:setup skill (D2), the eval fixture (F3), README (F6).
-    expect(readFileSync(join(repo.root, ".gitignore"), "utf8")).toContain(
-      ".worktrees/\n.claude/*.local.*\n.claude/locks/\n.claude/story-evidence/\n",
-    );
+    expect(readFileSync(join(repo.root, ".gitignore"), "utf8")).toContain(GITIGNORE_BLOCK);
     await repo.cleanup();
   });
 
@@ -76,7 +75,7 @@ describe("story init", () => {
     const repo = await makeRepo();
     expect((await runStory(repo.root, ["init"])).code).toBe(1);
     const { rm } = await import("node:fs/promises");
-    await rm(join(repo.root, ".claude/story-workflow.json"));
+    await rm(configPath(repo.root));
     const bad = await runStory(repo.root, ["init", "--merge", "yolo"]);
     expect(bad.code).toBe(1);
     expect(JSON.parse(bad.stderr).error).toMatch(/merge/);
@@ -89,7 +88,7 @@ describe("story init --config (the stories:setup interview writes answers here)"
     const repo = await makeRepo();
     const { rm } = await import("node:fs/promises");
     const { writeFileSync } = await import("node:fs");
-    await rm(join(repo.root, ".claude/story-workflow.json"));
+    await rm(configPath(repo.root));
     const answers = {
       version: 1,
       storiesDir: "stories",
@@ -104,14 +103,14 @@ describe("story init --config (the stories:setup interview writes answers here)"
       },
       defaults: { feature: ["test"], bug: ["test"], chore: [], ui: ["test", "visual"] },
       gateLock: false,
-      budgets: { maxIterations: 25, maxFixRoundsPerStory: 5 },
+      budgets: { maxStalls: 5, maxFixRoundsPerStory: 5 },
     };
     writeFileSync(join(repo.root, "answers.json"), JSON.stringify(answers));
     const r = await runStory(repo.root, ["init", "--config", "answers.json", "--json"]);
     expect(r.code).toBe(0);
     // verbatim: exactly the answers, never merged with the flag-mode defaults
-    expect(JSON.parse(readFileSync(join(repo.root, ".claude/story-workflow.json"), "utf8"))).toEqual(answers);
-    expect(existsSync(join(repo.root, "stories/archive"))).toBe(true); // scaffold still created
+    expect(JSON.parse(readFileSync(configPath(repo.root), "utf8"))).toEqual(answers);
+    expect(existsSync(join(repo.root, CONFIG_DEFAULTS.storiesDir, ARCHIVE_DIR))).toBe(true); // scaffold still created
     await repo.cleanup();
   });
 
@@ -119,7 +118,7 @@ describe("story init --config (the stories:setup interview writes answers here)"
     const repo = await makeRepo();
     const { rm } = await import("node:fs/promises");
     const { writeFileSync } = await import("node:fs");
-    await rm(join(repo.root, ".claude/story-workflow.json"));
+    await rm(configPath(repo.root));
     const answers = {
       version: 1,
       storiesDir: "docs/tickets",
@@ -128,12 +127,12 @@ describe("story init --config (the stories:setup interview writes answers here)"
       gates: { test: { kind: "command", run: "true" } },
       defaults: { feature: ["test"], bug: ["test"], chore: [] },
       gateLock: true,
-      budgets: { maxIterations: 10, maxFixRoundsPerStory: 3 },
+      budgets: { maxStalls: 3, maxFixRoundsPerStory: 3 },
     };
     writeFileSync(join(repo.root, "answers.json"), JSON.stringify(answers));
     const r = await runStory(repo.root, ["init", "--config", "answers.json", "--json"]);
     expect(r.code).toBe(0);
-    expect(existsSync(join(repo.root, "docs/tickets/archive"))).toBe(true);
+    expect(existsSync(join(repo.root, answers.storiesDir, ARCHIVE_DIR))).toBe(true);
     await repo.cleanup();
   });
 
@@ -141,7 +140,7 @@ describe("story init --config (the stories:setup interview writes answers here)"
     const repo = await makeRepo();
     const { rm } = await import("node:fs/promises");
     const { writeFileSync } = await import("node:fs");
-    await rm(join(repo.root, ".claude/story-workflow.json"));
+    await rm(configPath(repo.root));
     const attempt = async (answers: unknown) => {
       writeFileSync(join(repo.root, "answers.json"), JSON.stringify(answers));
       return runStory(repo.root, ["init", "--config", "answers.json"]);
@@ -150,7 +149,7 @@ describe("story init --config (the stories:setup interview writes answers here)"
     expect((await attempt({ ...base, merge: "yolo" })).code).toBe(1);                       // bad merge mode
     expect((await attempt({ ...base, gates: { test: { run: "true" } } })).code).toBe(1);    // gate without kind
     expect((await attempt({ ...base, defaults: { feature: ["nope"] } })).code).toBe(1);     // unknown default gate
-    expect((await attempt({ ...base, budgets: { maxIterations: "lots" } })).code).toBe(1);  // non-numeric budget
+    expect((await attempt({ ...base, budgets: { maxStalls: "lots" } })).code).toBe(1);  // non-numeric budget
     expect((await attempt("not an object")).code).toBe(1);
     writeFileSync(join(repo.root, "answers.json"), JSON.stringify(base));
     const combo = await runStory(repo.root, ["init", "--config", "answers.json", "--merge", "self"]);

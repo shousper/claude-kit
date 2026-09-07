@@ -76,9 +76,12 @@ human partner which case applies:
   plan. Your human partner watches and steers the stage agents in the Agents Hub (Alt+A).
   Aborting the eval call stops the run and cancels the in-flight agent.
 
-Either way the stage agents are named after their stage: `impl-T1`, `spec-b1`, `quality-b1`,
-`fix-b1-r1`, `recheck-b1-r1`, `verify-r1`, `verify-fix-r1`. `history://NAME` reads any of
-their transcripts.
+Either way the stage agents are named `RUN_SLUG-` plus their stage: `RUN_SLUG-impl-T1`,
+`RUN_SLUG-spec-b1`, `RUN_SLUG-quality-b1`, `RUN_SLUG-fix-b1-r1`, `RUN_SLUG-recheck-b1-r1`,
+`RUN_SLUG-verify-r1`, `RUN_SLUG-verify-fix-r1` (bare stage names without a slug). The prefix
+keeps a second run in the same session from colliding with the first — agent ids are
+session-wide, and a reused id is uniquified (`impl-T1-2`) so `history://impl-T1` would name
+the earlier run. `history://NAME` reads any transcript; a `blocked` reason quotes the exact id.
 
 ## Handling the result
 
@@ -89,9 +92,9 @@ There is no envelope to unwrap.
   evidence (the workflow already ran the full suite + linter — do NOT re-run it or read test
   output yourself), present a final summary, then the iteration choice.
 - `status === 'blocked'` → surface `reason`, `blockedAtBatch`, and any `findings`. A reason of
-  the form `stage agent impl-T3 did not complete: ...` means that agent failed, yielded
+  the form `stage agent RUN_SLUG-impl-T3 did not complete: ...` means that agent failed, yielded
   off-schema, or exceeded `stageTimeoutMinutes` (in which case it was cancelled); read
-  `history://impl-T3` before deciding. Resolve with your human partner, then relaunch as
+  `history://RUN_SLUG-impl-T3` before deciding. Resolve with your human partner, then relaunch as
   described next.
 
 ## Stopping and resuming

@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { appendToSection, setSection } from "../../plugins/stories/lib/cli.mjs";
-import { loadStories } from "../../plugins/stories/lib/board.mjs";
+import { appendToSection, loadStories, setSection } from "../../shared/stories/lib/board.mjs";
 import { makeRepo, runStory, storyText, writeStoryFile } from "./helpers";
 
 const CONFIG = { storiesDir: "stories" };

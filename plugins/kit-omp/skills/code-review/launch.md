@@ -13,8 +13,9 @@ ordinary subagent of your session, visible in the Agents Hub.
 
    ```js
    const { run } = await import("SKILL_BASE/review.workflow.mjs");
-   return await run({
+   const result = await run({
      diffRef: "main",             // or "{BASE_SHA}..{HEAD_SHA}" for a committed/PR range
+     slug: "RUN_SLUG",            // names this run's agents (RUN_SLUG-review-correctness, ...)
      ledger: { decisions: [], conventions: [], deviations: [] }, // optional cross-batch context
      // reviewDims: [{ key, focus, agent: "kit-worker" | "kit-arbiter" }, ...]
      //                           — optional; replaces the five default dimensions below.
@@ -22,21 +23,32 @@ ordinary subagent of your session, visible in the Agents Hub.
      //                             spawns the session's default agent, not kit-worker.
      // stageTimeoutMinutes: 60   — optional; a reviewer still running after this is cancelled
    });
+   await write("local://code-review/RUN_SLUG.json", JSON.stringify(result, null, 2));
+   return result;
    ```
 
-Replace `SKILL_BASE` with the path printed in step 1.
+Replace `SKILL_BASE` with the path printed in step 1 and `RUN_SLUG` with a short name for this
+review (letters, digits, `.`, `_`, `-`), unique within the session: `pre-merge`, `delta-2`.
 
 - The cell must `await run(...)`: a promise still pending when the cell returns never resolves.
 - Never pass a host object; `run()` takes one argument and returns `blocked` if it receives
   `{ agent, ... }` first.
-- `diffRef` defaults to `'main'` if omitted.
+- `diffRef` defaults to `'main'` if omitted. Anything after the ref is passed to `git diff`
+  verbatim, so `"main -- src/auth"` scopes the review to a path.
+- Agent ids are session-wide. Without `slug`, a second review in the same session reuses the
+  bare labels, the runtime uniquifies them (`review-correctness-2`), and
+  `history://review-correctness` then reaches the FIRST run's transcript. Pass a fresh `slug`
+  per review, and read ids from the returned `agents` map rather than reconstructing them.
+- Keep the `write(...)` line. A backgrounded cell's return value is delivered once and is not
+  retrievable afterwards through `output()`; the file is what you reread later.
 - A review takes a few minutes. With `eval.autoBackground.enabled: true` the call returns as a
   background job after about 60 s and the result is delivered when it settles (`hub` `wait`
   with its job id to block, `hub` `cancel` to stop); otherwise the call holds your turn.
 
 ## Handling the result
 
-`await run(...)` resolves to `{ status, diffRef, findings }`:
+`await run(...)` resolves to `{ status, diffRef, findings, agents }`. `agents` maps each stage
+label to the agent id actually spawned (`history://ID` reads its transcript).
 
 - `status === 'done'`: every dimension ran and every finding was adversarially verified. Act on
   `findings` directly: fix Critical issues immediately, fix Important issues before proceeding,

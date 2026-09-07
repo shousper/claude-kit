@@ -1,12 +1,12 @@
 import { describe, it, expect } from "bun:test";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
-import { KIT_CLAUDE_ROOT, STORIES_ROOT } from "../utils/paths";
+import { KIT_CLAUDE_ROOT, STORIES_CLAUDE_ROOT } from "../utils/paths";
 
 const WORKFLOWS = [
   { base: resolve(KIT_CLAUDE_ROOT, "skills/build-flow"), file: "build.workflow.js", name: "build-flow-batch-runner" },
   { base: resolve(KIT_CLAUDE_ROOT, "skills/code-review"), file: "review.workflow.js", name: "code-review-runner" },
-  { base: resolve(STORIES_ROOT, "skills/work"), file: "plan.workflow.js", name: "story-planners" },
+  { base: resolve(STORIES_CLAUDE_ROOT, "skills/work"), file: "plan.workflow.js", name: "story-planners" },
 ];
 
 describe("bundled workflow scripts", () => {

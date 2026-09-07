@@ -1,25 +1,13 @@
-import path from "node:path";
 import { describe, expect, test } from "bun:test";
-import { applyEffect, isFeedback } from "../../plugins/stories/lib/github.mjs";
-import { loadStoryById, makeFakeExec, makePrRepo, writeStory } from "./gh-helpers.ts";
+import { applyEffect, isFeedback } from "../../shared/stories/lib/github.mjs";
+import { branchName, worktreePath } from "../../shared/stories/lib/worktrees.mjs";
+import { inReviewStoryLines, loadStoryById, makeFakeExec, makePrRepo, writeStory } from "./gh-helpers.ts";
 import { fail as failRes } from "./gh-helpers.ts";
-
-export const inReviewLines = (id: string, number: number, extra: string[] = []) => [
-  `id: ${id}`,
-  "title: A story",
-  "type: feature",
-  "status: in-review",
-  "priority: P2",
-  `pr: {number: ${number}, lastSync: 2026-07-08T12:00:00Z, syncAttempts: 0}`,
-  "created: 2026-07-08",
-  "updated: 2026-07-08",
-  ...extra,
-];
 
 describe("applyEffect: feedback", () => {
   test("sets the flag, appends the feedback note, advances the cursor", async () => {
     const root = await makePrRepo();
-    await writeStory(root, inReviewLines("st-feed", 12));
+    await writeStory(root, inReviewStoryLines("st-feed", 12));
     await applyEffect(root, {
       type: "feedback",
       id: "st-feed",
@@ -44,7 +32,7 @@ describe("applyEffect: feedback", () => {
 describe("applyEffect: closed", () => {
   test("parks the story with a question", async () => {
     const root = await makePrRepo();
-    await writeStory(root, inReviewLines("st-c15d", 13));
+    await writeStory(root, inReviewStoryLines("st-c15d", 13));
     await applyEffect(root, { type: "closed", id: "st-c15d", number: 13 }, { exec: makeFakeExec().exec });
 
     const after = await loadStoryById(root, "st-c15d");
@@ -57,7 +45,7 @@ describe("applyEffect: closed", () => {
 describe("applyEffect: merged", () => {
   test("closes the story, tears down the worktree, pulls main", async () => {
     const root = await makePrRepo();
-    await writeStory(root, inReviewLines("st-33cd", 14));
+    await writeStory(root, inReviewStoryLines("st-33cd", 14));
     const teardowns: string[] = [];
     const { exec, lines, calls } = makeFakeExec();
     await applyEffect(root, { type: "merged", id: "st-33cd", number: 14 }, {
@@ -76,7 +64,7 @@ describe("applyEffect: merged", () => {
 
   test("teardown and pull failures are noted, not fatal", async () => {
     const root = await makePrRepo();
-    await writeStory(root, inReviewLines("st-3302", 15));
+    await writeStory(root, inReviewStoryLines("st-3302", 15));
     const { exec } = makeFakeExec([["git pull", failRes(1, "dirty tree")]]);
     await applyEffect(root, { type: "merged", id: "st-3302", number: 15 }, {
       exec,
@@ -97,7 +85,7 @@ const gatesFail = { pass: false, results: [{ gate: "test", pass: false }] };
 describe("applyEffect: drift", () => {
   test("green path: fetch, merge main, re-run gates, push", async () => {
     const root = await makePrRepo();
-    await writeStory(root, inReviewLines("st-d4f7", 16));
+    await writeStory(root, inReviewStoryLines("st-d4f7", 16));
     const gateCalls: string[] = [];
     const { exec, lines, calls } = makeFakeExec();
     const res = await applyEffect(root, { type: "drift", id: "st-d4f7", number: 16, conflictLikely: false }, {
@@ -108,11 +96,11 @@ describe("applyEffect: drift", () => {
       },
     });
     expect(res.outcome).toBe("pushed");
-    const wt = path.join(root, ".worktrees", "st-d4f7");
+    const wt = worktreePath(root, "st-d4f7");
     expect(lines()).toEqual([
       "git fetch origin main",
       "git merge origin/main --no-edit",
-      "git push origin story/st-d4f7",
+      `git push origin ${branchName("st-d4f7")}`,
     ]);
     expect(calls.every((c) => c.opts.cwd === wt)).toBe(true);
     expect(gateCalls).toEqual([`st-d4f7@${wt}`]);
@@ -125,7 +113,7 @@ describe("applyEffect: drift", () => {
 
   test("gate failure files a feedback item instead of pushing", async () => {
     const root = await makePrRepo();
-    await writeStory(root, inReviewLines("st-d4f2", 17));
+    await writeStory(root, inReviewStoryLines("st-d4f2", 17));
     const { exec, lines } = makeFakeExec();
     const res = await applyEffect(root, { type: "drift", id: "st-d4f2", number: 17, conflictLikely: false }, {
       exec,
@@ -141,7 +129,7 @@ describe("applyEffect: drift", () => {
 
   test("merge conflict aborts the merge and files a feedback item without running gates", async () => {
     const root = await makePrRepo();
-    await writeStory(root, inReviewLines("st-d4f3", 18));
+    await writeStory(root, inReviewStoryLines("st-d4f3", 18));
     let gatesRan = false;
     const { exec, lines } = makeFakeExec([["git merge origin/main", failRes(1, "CONFLICT")]]);
     const res = await applyEffect(root, { type: "drift", id: "st-d4f3", number: 18, conflictLikely: true }, {
@@ -184,7 +172,7 @@ describe("applyEffect: drift", () => {
 describe("applyEffect: merge (approved fallback)", () => {
   test("runs gh pr merge and leaves the story in-review for the next sweep's merged path", async () => {
     const root = await makePrRepo();
-    await writeStory(root, inReviewLines("st-a99e", 20));
+    await writeStory(root, inReviewStoryLines("st-a99e", 20));
     const { exec, lines } = makeFakeExec();
     const res = await applyEffect(root, { type: "merge", id: "st-a99e", number: 20 }, { exec });
     expect(res).toEqual({ id: "st-a99e", type: "merge", outcome: "merged" });
@@ -196,7 +184,7 @@ describe("applyEffect: merge (approved fallback)", () => {
 
   test("a failing gh pr merge is noted, not fatal (branch protection, races)", async () => {
     const root = await makePrRepo();
-    await writeStory(root, inReviewLines("st-a992", 21));
+    await writeStory(root, inReviewStoryLines("st-a992", 21));
     const { exec } = makeFakeExec([["gh pr merge", failRes(1, "merge blocked by branch protection")]]);
     const res = await applyEffect(root, { type: "merge", id: "st-a992", number: 21 }, { exec });
     expect(res.outcome).toBe("failed");

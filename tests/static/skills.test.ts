@@ -3,11 +3,11 @@ import { readdirSync, existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { resolve } from "path";
 import { parseSkill, type ParsedSkill } from "../utils/skill-parser";
-import { SKILLS_DIR, STORIES_ROOT, KIT_CLAUDE_ROOT, KIT_OMP_ROOT, WRITING_SKILLS_DIR } from "../utils/paths";
+import { SKILLS_DIR, STORIES_SKILLS_DIR, STORIES_ROOTS, KIT_CLAUDE_ROOT, KIT_OMP_ROOT, WRITING_SKILLS_DIR } from "../utils/paths";
 
 const PLUGIN_SKILL_ROOTS: Record<string, string> = {
   kit: SKILLS_DIR,
-  stories: resolve(STORIES_ROOT, "skills"),
+  stories: STORIES_SKILLS_DIR,
   writing: WRITING_SKILLS_DIR,
 };
 
@@ -127,9 +127,11 @@ describe("skill companion files", () => {
         normalized.add(local);
       }
       for (const ref of normalized) {
-        if (ref === "launch.md" && e.ns === "kit") {
-          expect(existsSync(resolve(KIT_CLAUDE_ROOT, "skills", e.dir, ref)), `${e.key} -> ${ref} (kit-claude)`).toBe(true);
-          expect(existsSync(resolve(KIT_OMP_ROOT, "skills", e.dir, ref)), `${e.key} -> ${ref} (kit-omp)`).toBe(true);
+        if (ref === "launch.md" && (e.ns === "kit" || e.ns === "stories")) {
+          const roots = e.ns === "kit" ? { claude: KIT_CLAUDE_ROOT, omp: KIT_OMP_ROOT } : STORIES_ROOTS;
+          for (const [harness, root] of Object.entries(roots)) {
+            expect(existsSync(resolve(root, "skills", e.dir, ref)), `${e.key} -> ${ref} (${harness})`).toBe(true);
+          }
           continue;
         }
         expect(existsSync(resolve(e.path, ref)), `${e.key} -> ${ref}`).toBe(true);

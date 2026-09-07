@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeReady, patternsOverlap } from "../../plugins/stories/lib/board.mjs";
+import { computeReady, patternsOverlap } from "../../shared/stories/lib/board.mjs";
 
 type S = Record<string, unknown>;
 const st = (o: S): S => ({

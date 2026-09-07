@@ -1,3 +1,5 @@
+import { branchName } from "../../shared/stories/lib/worktrees.mjs";
+
 /** Shapes returned by `gh pr list --json number,state,reviewDecision,mergeStateStatus,updatedAt,headRefName`. */
 export function prListEntry(over: Record<string, unknown> = {}) {
   return {
@@ -6,7 +8,7 @@ export function prListEntry(over: Record<string, unknown> = {}) {
     reviewDecision: "",
     mergeStateStatus: "CLEAN",
     updatedAt: "2026-07-08T12:00:00Z",
-    headRefName: "story/st-aaaa",
+    headRefName: branchName("st-aaaa"),
     ...over,
   };
 }

@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { loadStories } from "../../plugins/stories/lib/board.mjs";
-import { run } from "../../plugins/stories/lib/util.mjs";
+import { loadStories } from "../../shared/stories/lib/board.mjs";
+import { run } from "../../shared/stories/lib/util.mjs";
+import { branchName, worktreePath } from "../../shared/stories/lib/worktrees.mjs";
 import { makeRepo, runStory, storyText, writeStoryFile } from "./helpers";
 
 const CONFIG = { storiesDir: "stories" };
@@ -28,7 +29,7 @@ describe("story ready", () => {
     // Claim st-0001, then touch src/x.ts's territory from its worktree —
     // a NEW story overlapping that actual diff must drop out of ready.
     expect((await runStory(repo.root, ["claim", "st-0001", "--session", "w1"])).code).toBe(0);
-    writeFileSync(join(repo.root, ".worktrees/st-0001", "collide.ts"), "x");
+    writeFileSync(join(worktreePath(repo.root, "st-0001"), "collide.ts"), "x");
     await writeStoryFile(repo.root, "st-0003-c.md", storyText({ id: "st-0003", title: "c", status: "todo", touches: "[collide.ts]" }));
     const after = (await runStory(repo.root, ["ready", "--json"])).json() as Array<{ id: string }>;
     expect(after.map((s) => s.id)).toEqual(["st-0002"]);
@@ -44,15 +45,15 @@ describe("story claim", () => {
     expect(r.code).toBe(0);
     expect(r.json()).toMatchObject({
       id: "st-0001",
-      branch: "story/st-0001",
-      worktree: join(repo.root, ".worktrees/st-0001"),
+      branch: branchName("st-0001"),
+      worktree: worktreePath(repo.root, "st-0001"),
       session: "sess-1",
     });
     const s = loadStories(repo.root, CONFIG)[0];
     expect(s.status).toBe("in-progress");
     expect(s.claim).toMatchObject({ session: "sess-1" });
     expect(Date.parse(s.claim!.lease as string)).toBeGreaterThan(0);
-    expect(git(join(repo.root, ".worktrees/st-0001"), "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("story/st-0001");
+    expect(git(worktreePath(repo.root, "st-0001"), "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe(branchName("st-0001"));
     await repo.cleanup();
   });
 
@@ -88,7 +89,7 @@ describe("story claim", () => {
     const s = loadStories(repo.root, CONFIG)[0];
     expect(s.status).toBe("todo");
     expect(s.claim).toBeUndefined();
-    expect(existsSync(join(repo.root, ".worktrees/st-0001"))).toBe(false);
+    expect(existsSync(worktreePath(repo.root, "st-0001"))).toBe(false);
     // …and a real re-claim afterwards succeeds (the story was never stranded).
     expect((await runStory(repo.root, ["claim", "st-0001", "--session", "sess-2"])).code).toBe(0);
     expect(loadStories(repo.root, CONFIG)[0].status).toBe("in-progress");
@@ -115,7 +116,7 @@ describe("story claim", () => {
     // re-throws — but the rollback runs first. Whether it surfaces as a thrown
     // error or exit 1, the fresh worktree must be gone.
     await runStory(repo.root, ["claim", "st-0001", "--session", "sess-1"], { exec }).catch(() => {});
-    expect(existsSync(join(repo.root, ".worktrees/st-0001"))).toBe(false); // fresh worktree torn down
+    expect(existsSync(worktreePath(repo.root, "st-0001"))).toBe(false); // fresh worktree torn down
     await repo.cleanup();
   });
 
@@ -126,7 +127,7 @@ describe("story claim", () => {
       "st-0001-a.md",
       storyText({ id: "st-0001", title: "a", status: "in-review", feedback: "true" }),
     );
-    git(repo.root, "worktree", "add", "-b", "story/st-0001", join(repo.root, ".worktrees/st-0001"), "main");
+    git(repo.root, "worktree", "add", "-b", branchName("st-0001"), worktreePath(repo.root, "st-0001"), "main");
     const r = await runStory(repo.root, ["claim", "st-0001", "--session", "w2", "--json"]);
     expect(r.code).toBe(0);
     const s = loadStories(repo.root, CONFIG)[0];
@@ -145,8 +146,8 @@ describe("touches expansion (design §7: warn + note, never halt)", () => {
     expect((await runStory(repo.root, ["claim", "st-0001", "--session", "w1"])).code).toBe(0);
     expect((await runStory(repo.root, ["claim", "st-0002", "--session", "w2"])).code).toBe(0);
     // st-0001's ACTUAL diff grows into st-0002's declared territory.
-    mkdirSync(join(repo.root, ".worktrees/st-0001/docs"), { recursive: true });
-    writeFileSync(join(repo.root, ".worktrees/st-0001/docs/notes.md"), "x");
+    mkdirSync(join(worktreePath(repo.root, "st-0001"), "docs"), { recursive: true });
+    writeFileSync(join(worktreePath(repo.root, "st-0001"), "docs", "notes.md"), "x");
     const r = await runStory(repo.root, ["ready", "--json"]);
     expect(r.code).toBe(0); // warn, never halt — stdout JSON stays parseable
     expect(r.json()).toEqual([]);
@@ -172,13 +173,13 @@ describe("story claim — stale branch reuse", () => {
     const repo = await makeRepo();
     const created = await runStory(repo.root, ["create", "--title", "stale branch", "--json"]);
     const { id } = created.json() as { id: string };
-    git(repo.root, "branch", `story/${id}`); // branch pinned at current main
+    git(repo.root, "branch", branchName(id)); // branch pinned at current main
     writeFileSync(join(repo.root, "prereq.ts"), "prereq merged while parked\n");
     git(repo.root, "add", "prereq.ts");
     git(repo.root, "commit", "-m", "prereq lands on main");
 
     expect((await runStory(repo.root, ["claim", id, "--session", "w1"])).code).toBe(0);
-    const head = git(join(repo.root, ".worktrees", id), "rev-parse", "HEAD").trim();
+    const head = git(worktreePath(repo.root, id), "rev-parse", "HEAD").trim();
     expect(head).toBe(git(repo.root, "rev-parse", "main").trim());
     await repo.cleanup();
   });

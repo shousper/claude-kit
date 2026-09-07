@@ -5,8 +5,8 @@ import {
   STATUSES,
   applyDefaults,
   assertTransition,
-} from "../../plugins/stories/lib/board.mjs";
-import { CliError } from "../../plugins/stories/lib/util.mjs";
+} from "../../shared/stories/lib/board.mjs";
+import { CliError } from "../../shared/stories/lib/util.mjs";
 
 describe("schema constants", () => {
   test("statuses and priorities are pinned", () => {

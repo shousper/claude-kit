@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { actionableItems, detectEffects } from "../../plugins/stories/lib/github.mjs";
+import { actionableItems, detectEffects } from "../../shared/stories/lib/github.mjs";
 import { comment, prDetail, prListEntry, review } from "./gh-fixtures.ts";
 
 const story = (id: string, number: number, over: Record<string, unknown> = {}) => ({

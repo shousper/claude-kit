@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { loadStories } from "../../plugins/stories/lib/board.mjs";
+import { loadStories } from "../../shared/stories/lib/board.mjs";
 import { DEFAULT_CONFIG, makeRepo, runStory, storyText, writeStoryFile } from "./helpers";
 
 const CONFIG = { storiesDir: "stories" };

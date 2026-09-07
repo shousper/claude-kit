@@ -9,7 +9,8 @@ import {
   runCommandGates,
   unmetReviewGates,
   writeEvidence,
-} from "../../plugins/stories/lib/gates.mjs";
+} from "../../shared/stories/lib/gates.mjs";
+import { worktreePath } from "../../shared/stories/lib/worktrees.mjs";
 import { makeRepo, runStory, storyText, writeStoryFile, DEFAULT_CONFIG } from "./helpers";
 
 const story = (o: Record<string, unknown> = {}) => ({ id: "st-0001", title: "t", type: "feature", ...o });
@@ -37,9 +38,9 @@ describe("runCommandGates", () => {
       return { code: args[1] === "run-tests" ? 0 : 1, stdout: "", stderr: "" };
     };
     const results = await runCommandGates(story(), gateDefs(), {
-      root: "/repo", cwd: "/repo/.worktrees/st-0001", exec, lock: async (_r: string, _n: string, fn: () => unknown) => fn(),
+      root: "/repo", cwd: worktreePath("/repo", "st-0001"), exec, lock: async (_r: string, _n: string, fn: () => unknown) => fn(),
     });
-    expect(calls).toEqual([{ cmd: "sh", args: ["-c", "run-tests"], cwd: "/repo/.worktrees/st-0001" }]);
+    expect(calls).toEqual([{ cmd: "sh", args: ["-c", "run-tests"], cwd: worktreePath("/repo", "st-0001") }]);
     expect(results).toEqual([{ name: "test", kind: "command", run: "run-tests", exitCode: 0, pass: true }]);
   });
 
@@ -83,7 +84,7 @@ describe("verdicts + evidence", () => {
     await repo.cleanup();
   });
 
-  test("writeEvidence drops a timestamped json under .claude/story-evidence/<id>/", async () => {
+  test("writeEvidence drops a timestamped json under <state root>/local/evidence/<id>/", async () => {
     const repo = await makeRepo();
     const file = writeEvidence(repo.root, "st-0001", { gates: [{ name: "test", pass: true }] });
     expect(file.startsWith(join(evidenceDir(repo.root, "st-0001"), ""))).toBe(true);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { SKILLS_DIR, KIT_CLAUDE_ROOT, KIT_OMP_ROOT } from "../utils/paths";
+import { SKILLS_DIR, KIT_CLAUDE_ROOT, KIT_OMP_ROOT, STORIES_CLAUDE_ROOT, STORIES_OMP_ROOT, STORIES_SKILLS_DIR } from "../utils/paths";
 
 describe("shared SKILL.md stays harness-neutral", () => {
   it.each(["build-flow", "code-review"])("skills/%s/SKILL.md references launch.md neutrally", (skill) => {
@@ -43,5 +43,33 @@ describe("plugins/kit-omp launch.md documents the eval device", () => {
     expect(text).toContain("eval");
     expect(text).toMatch(/import/);
     expect(text).toMatch(/\brun\(/);
+  });
+});
+
+describe("stories launch.md per harness", () => {
+  it("shared work/SKILL.md references launch.md neutrally", () => {
+    const text = readFileSync(resolve(STORIES_SKILLS_DIR, "work", "SKILL.md"), "utf-8");
+    expect(text).toContain("launch.md");
+    expect(text).not.toContain("Workflow(");
+    expect(text).not.toContain("skill://");
+  });
+
+  it("plugins/stories-claude documents the Workflow tool, the Task tool, and concrete model names", () => {
+    const text = readFileSync(resolve(STORIES_CLAUDE_ROOT, "skills", "work", "launch.md"), "utf-8");
+    expect(text).toContain("Workflow(");
+    expect(text).toContain("plan.workflow.js");
+    expect(text).toContain("Task tool");
+    expect(text).toMatch(/Sonnet|Opus/);
+  });
+
+  it("plugins/stories-omp documents eval import/run, the planner agents, and modelRoles", () => {
+    const text = readFileSync(resolve(STORIES_OMP_ROOT, "skills", "work", "launch.md"), "utf-8");
+    expect(text).not.toContain("Workflow(");
+    expect(text).toContain("eval");
+    expect(text).toContain("plan.workflow.mjs");
+    expect(text).toMatch(/\brun\(/);
+    expect(text).toContain("story-planner-routine");
+    expect(text).toContain("story-planner-frontier");
+    expect(text).toMatch(/modelRoles/);
   });
 });

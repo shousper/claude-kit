@@ -1,8 +1,8 @@
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { loadStories } from "../../plugins/stories/lib/board.mjs";
-import { loadConfig } from "../../plugins/stories/lib/cli.mjs";
+import { CONFIG_DEFAULTS, archiveDir, loadConfig, loadStories } from "../../shared/stories/lib/board.mjs";
+import { configPath, locksDir } from "../../shared/stories/lib/util.mjs";
+import { makeTmpDir, storyLines } from "./helpers";
 
 export type ExecResult = { code: number; stdout: string; stderr: string };
 type RouteResult =
@@ -50,26 +50,17 @@ export function makeFakeExec(
 export async function makePrRepo(
   configOverrides: Record<string, unknown> = {},
 ): Promise<string> {
-  const root = await fs.realpath(
-    await fs.mkdtemp(path.join(os.tmpdir(), "stories-pr-")),
-  );
-  await fs.mkdir(path.join(root, ".claude", "locks"), { recursive: true });
-  await fs.mkdir(path.join(root, "stories", "archive"), { recursive: true });
+  const root = await makeTmpDir("stories-pr-");
   const config = {
-    version: 1,
-    storiesDir: "stories",
+    ...CONFIG_DEFAULTS,
     merge: "pr",
-    baseBranch: "main",
     gates: { test: { kind: "command", run: "true" } },
     defaults: { feature: ["test"], bug: ["test"], chore: ["test"] },
-    gateLock: true,
-    budgets: { maxIterations: 10, maxFixRoundsPerStory: 3 },
     ...configOverrides,
   };
-  await fs.writeFile(
-    path.join(root, ".claude", "story-workflow.json"),
-    JSON.stringify(config, null, 2) + "\n",
-  );
+  await fs.mkdir(locksDir(root), { recursive: true });
+  await fs.mkdir(archiveDir(root, config), { recursive: true });
+  await fs.writeFile(configPath(root), JSON.stringify(config, null, 2) + "\n");
   return root;
 }
 
@@ -83,15 +74,31 @@ export async function writeStory(
   if (!idLine) throw new Error("writeStory: frontmatter needs an id line");
   const id = idLine.slice("id:".length).trim();
   const content = ["---", ...frontmatterLines, "---", "", body].join("\n");
-  await fs.writeFile(path.join(root, "stories", `${id}.md`), content + "\n");
+  await fs.writeFile(path.join(root, CONFIG_DEFAULTS.storiesDir, `${id}.md`), content + "\n");
   return id;
+}
+
+/**
+ * Frontmatter lines for an in-review story with an open PR: title "A story",
+ * status in-review, priority P2, and a `pr:` flow map for `prNumber`. Shared
+ * by the sweep and effects suites, which both exercise the in-review+PR
+ * shape.
+ */
+export function inReviewStoryLines(
+  id: string,
+  prNumber: number,
+  extra: string[] = [],
+): string[] {
+  return storyLines(
+    id,
+    { title: "A story", status: "in-review", priority: "P2" },
+    [`pr: {number: ${prNumber}, lastSync: 2026-07-08T12:00:00Z, syncAttempts: 0}`, ...extra],
+  );
 }
 
 /** B's loadStories requires config — read it with cli.mjs's loadConfig. */
 export async function loadStoryById(root: string, id: string) {
-  const story = loadStories(root, loadConfig(root)).find(
-    (s: { id: string }) => s.id === id,
-  );
+  const story = loadStories(root, loadConfig(root)).find((s: { id: string }) => s.id === id);
   if (!story) throw new Error(`story ${id} not found in ${root}`);
   return story;
 }

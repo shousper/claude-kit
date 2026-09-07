@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Claude Code entry for the story CLI: maps this harness's session id onto the
+# neutral STORY_SESSION_ID the library reads, records its own path so `story
+# context` can tell the model where the CLI is, and execs the shared Node entry.
+# The only file in this plugin that knows the name CLAUDE_SESSION_ID.
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "${STORY_SESSION_ID:-}" ] && [ -n "${CLAUDE_SESSION_ID:-}" ]; then
+  export STORY_SESSION_ID="$CLAUDE_SESSION_ID"
+fi
+export STORY_BIN="${here}/story"
+exec node "${here}/../lib/main.mjs" "$@"

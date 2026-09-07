@@ -2,7 +2,7 @@ import { describe, it } from "bun:test";
 import { runEval } from "../utils/eval-runner";
 import { createWorkspace } from "../utils/workspace-manager";
 import { claude } from "../utils/harness";
-import { STORIES_ROOT } from "../utils/paths";
+import { STORIES_CLAUDE_ROOT } from "../utils/paths";
 
 const TRIALS = 3;
 const REQUIRED_PASSES = 2;
@@ -124,7 +124,7 @@ async function runGateTrial(session: "brainstorm-design-approved" | "brainstorm-
       maxTurns: 8,
       cwd: workspace.cwd,
       env: workspace.env,
-      pluginDirs: [claude.pluginRoot, STORIES_ROOT],
+      pluginDirs: [claude.pluginRoot, STORIES_CLAUDE_ROOT],
       ephemeral: true,
       resume: workspace.sessionId,
       forkSession: true,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { tick } from "../../plugins/stories/lib/loop.mjs";
+import { tick } from "../../shared/stories/lib/loop.mjs";
 import { makePrRepo } from "./gh-helpers.ts";
 
 describe("loop tick in pr mode", () => {

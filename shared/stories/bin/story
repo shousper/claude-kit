@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+// Shared entry for the story CLI. Node resolves this import against the file's
+// real path, so a plugin's bin/ symlink to this directory works unchanged.
+// Static ESM in an extensionless file relies on module-syntax detection, on by
+// default since Node 22.7 (and 20.19); 22.7 is the documented floor. Node 20 is EOL.
+import "../lib/main.mjs";

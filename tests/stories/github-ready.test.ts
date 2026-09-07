@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeReady, loadStories } from "../../plugins/stories/lib/board.mjs";
-import { loadConfig } from "../../plugins/stories/lib/cli.mjs";
+import { computeReady, loadConfig, loadStories } from "../../shared/stories/lib/board.mjs";
 import { makePrRepo, writeStory } from "./gh-helpers.ts";
 
 describe("computeReady with pr-mode stories (pins B12/B13 behavior)", () => {

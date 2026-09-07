@@ -3,9 +3,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { writeFileSync as writeSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { CliError } from "../../plugins/stories/lib/util.mjs";
-import { lockPath, withLock } from "../../plugins/stories/lib/locks.mjs";
-import { makeRepo, STORIES_LIB } from "./helpers";
+import { CliError, lockPath, locksDir } from "../../shared/stories/lib/util.mjs";
+import { LOCK, LOCK_NAMES, withLock } from "../../shared/stories/lib/locks.mjs";
+import { makeRepo } from "./helpers";
+import { STORIES_LIB_DIR } from "../utils/paths";
 
 describe("withLock", () => {
   test("runs fn, returns its result, and removes the lockfile", async () => {
@@ -36,7 +37,7 @@ describe("withLock", () => {
 
   test("times out with CliError code LOCK_TIMEOUT when held by a live process", async () => {
     const repo = await makeRepo();
-    mkdirSync(join(repo.root, ".claude", "locks"), { recursive: true });
+    mkdirSync(locksDir(repo.root), { recursive: true });
     // Held by *this* (alive) process, freshly — not reclaimable.
     writeFileSync(lockPath(repo.root, "board"), JSON.stringify({ pid: process.pid, at: Date.now() }));
     const err = await withLock(repo.root, "board", async () => "never", { timeoutMs: 300, pollMs: 25 }).catch(
@@ -51,7 +52,7 @@ describe("withLock", () => {
 
 describe("stale reclaim", () => {
   const plant = (root: string, body: string) => {
-    mkdirSync(join(root, ".claude", "locks"), { recursive: true });
+    mkdirSync(locksDir(root), { recursive: true });
     writeFileSync(lockPath(root, "board"), body);
   };
 
@@ -93,7 +94,7 @@ describe("stale reclaim", () => {
 describe("cross-process mutual exclusion", () => {
   test("two concurrent processes never overlap inside the lock", async () => {
     const repo = await makeRepo();
-    const locksUrl = pathToFileURL(join(STORIES_LIB, "locks.mjs")).href;
+    const locksUrl = pathToFileURL(join(STORIES_LIB_DIR, "locks.mjs")).href;
     const worker = join(repo.root, "worker.mjs");
     writeSync(
       worker,
@@ -130,4 +131,21 @@ describe("cross-process mutual exclusion", () => {
     );
     await repo.cleanup();
   }, 15_000);
+});
+
+describe("LOCK", () => {
+  test("names every lock the plugin takes, including learnings", () => {
+    expect(LOCK).toEqual({
+      BOARD: "board",
+      MERGE: "merge",
+      GATE: "gate",
+      SWEEP: "sweep",
+      LEARNINGS: "learnings",
+    });
+    expect(Object.isFrozen(LOCK)).toBe(true);
+  });
+
+  test("LOCK_NAMES is the LOCK values", () => {
+    expect(LOCK_NAMES).toEqual(Object.values(LOCK));
+  });
 });

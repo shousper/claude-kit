@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
-import { ROOT, MARKETPLACE_DIR, OMP_MARKETPLACE_DIR, KIT_CLAUDE_ROOT, KIT_OMP_ROOT, STORIES_ROOT } from "../utils/paths";
+import { ROOT, MARKETPLACE_DIR, OMP_MARKETPLACE_DIR, KIT_CLAUDE_ROOT, KIT_OMP_ROOT, STORIES_CLAUDE_ROOT, STORIES_OMP_ROOT } from "../utils/paths";
 
 interface MarketplacePlugin {
   name: string;
@@ -105,12 +105,22 @@ describe("kit plugin dual-harness scoping", () => {
   });
 });
 
-describe("stories plugin", () => {
-  it("is listed in both catalogues sourced from plugins/stories", () => {
-    for (const { catalogue } of Object.values(CATALOGUES)) {
-      const entry = catalogue.plugins.find((p) => p.name === "stories");
-      expect(entry?.source).toBe("./plugins/stories");
-      expect(resolve(ROOT, entry!.source)).toBe(STORIES_ROOT);
-    }
+describe("stories plugin dual-harness scoping", () => {
+  it("both catalogues list stories, each pointing at its own plugin directory", () => {
+    const claudeEntry = claudeMarketplace.plugins.find((p) => p.name === "stories");
+    const ompEntry = ompMarketplace.plugins.find((p) => p.name === "stories");
+    expect(claudeEntry?.source).toBe("./plugins/stories-claude");
+    expect(resolve(ROOT, claudeEntry!.source)).toBe(STORIES_CLAUDE_ROOT);
+    expect(ompEntry?.source).toBe("./plugins/stories-omp");
+    expect(resolve(ROOT, ompEntry!.source)).toBe(STORIES_OMP_ROOT);
+  });
+
+  it("both stories plugin.json files declare name stories, and each catalogue's version matches its manifest", () => {
+    const claude = readPluginJson(STORIES_CLAUDE_ROOT, MARKETPLACE_DIR);
+    const omp = readPluginJson(STORIES_OMP_ROOT, OMP_MARKETPLACE_DIR);
+    expect(claude.name).toBe("stories");
+    expect(omp.name).toBe("stories");
+    expect(claudeMarketplace.plugins.find((p) => p.name === "stories")!.version).toBe(claude.version);
+    expect(ompMarketplace.plugins.find((p) => p.name === "stories")!.version).toBe(omp.version);
   });
 });
