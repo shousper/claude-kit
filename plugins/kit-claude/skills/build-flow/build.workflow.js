@@ -43,7 +43,7 @@ const MAX_FIX_ROUNDS = a.maxFixRounds ?? 3
 // every prompt opens with a hard cd instruction.
 const WT = typeof a.worktree === 'string' && a.worktree.trim() ? a.worktree.trim() : null
 const wtHeader = WT
-  ? `## Worktree\nALL work happens in ${WT} — run \`cd ${WT}\` FIRST. Every file you read or edit lives under this path; if your shell is anywhere else, you are in the wrong checkout of this repo.\n\n`
+  ? `## Worktree\nALL work happens in ${WT}. Your session's working directory is a DIFFERENT checkout of this repo, and the file tools (read, edit, write, grep, glob) resolve relative paths against it, not against your shell. So: give every file tool an absolute path under ${WT}, and give every bash call \`cwd: "${WT}"\` (or start it with \`cd ${WT} &&\`). A relative path lands in the wrong checkout.\n\n`
   : ''
 const ledger = a.ledger ?? { decisions: [], conventions: [], deviations: [] }
 const startBatch = a.startBatch ?? 0

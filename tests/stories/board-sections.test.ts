@@ -56,6 +56,16 @@ describe("getSection", () => {
     expect(getSection(withPlan, "## Description")).toBe("A different sample.");
     expect(getSection(withPlan, "## Description")).not.toContain("Acceptance Criteria");
   });
+
+  test("keeps a plan's own '## ' sub-headings inside the section (st-73e1: plan starting with '## Context')", () => {
+    const plan = "## Context\n\nadapter.py already parses carousels.\n\n## Steps\n\n1. add the extractor\n2. wire the stage";
+    const body = setSection(BODY, "## Implementation Plan", plan);
+    expect(getSection(body, "## Implementation Plan")).toBe(plan);
+    expect(readBodySection(body, "## Questions")).toBe("Should gates run twice?");
+    const replaced = setSection(body, "## Implementation Plan", "1. revised");
+    expect(getSection(replaced, "## Implementation Plan")).toBe("1. revised");
+    expect(replaced).not.toContain("## Steps");
+  });
 });
 
 describe("assertValidId / ID_PATTERN", () => {

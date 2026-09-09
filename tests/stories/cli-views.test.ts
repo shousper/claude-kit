@@ -60,7 +60,7 @@ describe("story show", () => {
 
   test("human view prints a state header ahead of the raw file", async () => {
     const repo = await makeRepo();
-    const created = await runStory(repo.root, ["create", "--title", "b"]);
+    const created = await runStory(repo.root, ["create", "--title", "b", "--description", "d", "--ac", "a"]);
     expect(created.code).toBe(0);
     const human = await runStory(repo.root, ["show", created.stdout.trim()]);
     expect(human.stdout).toContain("status: todo");

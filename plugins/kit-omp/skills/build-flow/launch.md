@@ -134,7 +134,8 @@ per-call model or effort; the runner passes `{ agent, label, schema }`:
 | Post-fix re-check (scoped to the findings) | kit-worker |
 | Final verification (full suite + lint, once per run) | kit-verifier |
 
-Each agent resolves its model through a `modelRoles` alias chain (`kit_worker`, `kit_verifier`,
-`kit_arbiter`), falling through to the session model when unset. Pin a concrete model with
-`modelRoles.kit_worker: <provider/model>` (and `kit_verifier`, `kit_arbiter`) in OMP settings,
-or override a single agent via `task.agentModelOverrides.<agent-name>`.
+Each agent resolves its model through OMP's built-in roles, which every install has populated:
+`kit-worker` and `kit-verifier` through `task` (then `default`); `kit-arbiter` through `slow`
+(then `default`). Change a tier for everyone with `/model` → Roles, or override one agent via
+`task.agentModelOverrides.<agent-name>` (also editable from `/agents`). The plugin ships no
+custom `modelRoles` keys, so nothing needs configuring before the first run.

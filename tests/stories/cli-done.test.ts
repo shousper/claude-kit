@@ -15,7 +15,7 @@ const git = (cwd: string, ...args: string[]) => {
 };
 
 async function claimedStory(repo: Repo, extra: string[] = []): Promise<string> {
-  const created = await runStory(repo.root, ["create", "--title", "story under test", ...extra, "--json"]);
+  const created = await runStory(repo.root, ["create", "--title", "story under test", "--description", "d", "--ac", "a", ...extra, "--json"]);
   const { id } = created.json() as { id: string };
   expect((await runStory(repo.root, ["claim", id, "--session", "w1"])).code).toBe(0);
   const wt = worktreePath(repo.root, id);
@@ -63,7 +63,7 @@ describe("story done — self mode", () => {
     const repo = await makeRepo();
     const id = await claimedStory(repo);
     // Pre-existing pile-up: an unrelated board write nobody ever committed.
-    const pending = await runStory(repo.root, ["create", "--title", "unrelated pending story", "--json"]);
+    const pending = await runStory(repo.root, ["create", "--title", "unrelated pending story", "--description", "d", "--ac", "a", "--json"]);
     expect(pending.code).toBe(0);
     expect((await runStory(repo.root, ["done", id, "--allow-unplanned"])).code).toBe(0);
     expect(git(repo.root, "status", "--porcelain", "--", "stories").trim()).toBe("");
@@ -127,7 +127,7 @@ describe("story done — self mode", () => {
 
   test("done requires in-progress", async () => {
     const repo = await makeRepo();
-    const created = await runStory(repo.root, ["create", "--title", "x", "--json"]);
+    const created = await runStory(repo.root, ["create", "--title", "x", "--description", "d", "--ac", "a", "--json"]);
     const { id } = created.json() as { id: string };
     const r = await runStory(repo.root, ["done", id]);
     expect(r.code).toBe(1);
@@ -205,7 +205,7 @@ describe("story done — committed-work guards", () => {
   // worktree, and three stories closed "done" with zero code on main.
   test("refuses done while the worktree has uncommitted changes — nothing is merged or torn down", async () => {
     const repo = await makeRepo();
-    const created = await runStory(repo.root, ["create", "--title", "uncommitted work", "--json"]);
+    const created = await runStory(repo.root, ["create", "--title", "uncommitted work", "--description", "d", "--ac", "a", "--json"]);
     const { id } = created.json() as { id: string };
     expect((await runStory(repo.root, ["claim", id, "--session", "w1"])).code).toBe(0);
     const wt = worktreePath(repo.root, id);
@@ -224,7 +224,7 @@ describe("story done — committed-work guards", () => {
 
   test("refuses done when the story branch has no commits beyond base, unless --allow-empty", async () => {
     const repo = await makeRepo();
-    const created = await runStory(repo.root, ["create", "--title", "codeless story", "--json"]);
+    const created = await runStory(repo.root, ["create", "--title", "codeless story", "--description", "d", "--ac", "a", "--json"]);
     const { id } = created.json() as { id: string };
     expect((await runStory(repo.root, ["claim", id, "--session", "w1"])).code).toBe(0);
 
@@ -242,7 +242,7 @@ describe("story done — committed-work guards", () => {
 
   test("dirty board files get a restore hint, not a commit instruction", async () => {
     const repo = await makeRepo();
-    const created = await runStory(repo.root, ["create", "--title", "board drift", "--json"]);
+    const created = await runStory(repo.root, ["create", "--title", "board drift", "--description", "d", "--ac", "a", "--json"]);
     const { id } = created.json() as { id: string };
     expect((await runStory(repo.root, ["claim", id, "--session", "w1"])).code).toBe(0);
     const wt = worktreePath(repo.root, id);

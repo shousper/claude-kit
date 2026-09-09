@@ -65,6 +65,6 @@ The default dimensions are correctness, quality, tests, security, and architectu
 `reviewDims` to focus or extend the review. Each dimension names its own OMP agent
 (`kit-worker` by default; `kit-arbiter` for architecture, the one deep-judgment safety net).
 Reviewer agents are named `review-DIMENSION`, verifiers `verify-DIMENSION-N`. Each agent
-resolves its model through the same `modelRoles` alias chain as build-flow (`kit_worker`,
-`kit_arbiter`): pin concrete models via `modelRoles.kit_worker` / `modelRoles.kit_arbiter` in
-OMP settings, or override per agent via `task.agentModelOverrides.<agent-name>`.
+resolves its model through OMP's built-in roles, the same way build-flow does: `kit-worker`
+through `task`, `kit-arbiter` through `slow`. Change a tier with `/model` → Roles, or override
+one agent via `task.agentModelOverrides.<agent-name>`.

@@ -36,15 +36,22 @@ The cell must `await run(...)`; a promise still pending when the cell returns is
 
 Run `omp config get eval.autoBackground.enabled` in `bash` once per session. When it is `true`, a planning cell that outlasts the foreground window returns `Backgrounded as job JOB_ID`, your turn ends, and the result is delivered to you when the job settles — end your turn and wait for it; never poll. When it is `false`, the cell holds your turn until every planner returns. Either way `run()` resolves to `{ status, planned, unimplementable, failed }` directly; there is no envelope to unwrap. A planner that fails or exceeds 30 minutes is cancelled and lands in `failed` — park that story; there is no relaunch-with-cache on this harness.
 
+The delivered snapshot truncates long plans, so never copy `plan` or `batches` out of it. The runner writes every planned story to two files, and those are what you use:
+
+- `local://stories/ST-ID.plan.md` — the plan. Resolve the path with `echo local://stories/ST-ID.plan.md` in `bash` and pass it straight to `story update ST-ID --plan-file <path>`.
+- `local://stories/ST-ID.plan.json` — `{ id, plan, batches }`. In the build-flow cell, load the batches from it: `JSON.parse(await read("local://stories/ST-ID.plan.json")).batches`.
+
+Read the snapshot only for each story's `status` and, for `failed`, its `error`.
+
 ## Complexity → agent
 
-| Complexity | Agent | Falls through to |
+| Complexity | Agent | Resolves through |
 |---|---|---|
-| routine | story-planner-routine | `modelRoles.kit_worker`, then the session model |
-| hard | story-planner-hard | `modelRoles.kit_arbiter`, then the session model |
-| frontier | story-planner-frontier | the session model only |
+| routine | story-planner-routine | `modelRoles.plan`, then `default` |
+| hard | story-planner-hard | `modelRoles.slow`, then `plan` |
+| frontier | story-planner-frontier | `modelRoles.slow` only |
 
-Each agent resolves its model through a `modelRoles` alias (`story_planner_routine`, `story_planner_hard`, `story_planner_frontier`). Pin a concrete model with `modelRoles.<alias>: <provider/model>` in OMP settings, or override one agent via `task.agentModelOverrides.<agent-name>`. Nothing in this session chooses, retries, or substitutes a planner agent.
+These are OMP's built-in roles, so a fresh install resolves every planner without setup; no planner ever falls through to the `task` worker tier. Change a tier for everyone with `/model` → Roles, or override one agent via `task.agentModelOverrides.<agent-name>` (also editable from `/agents`). Nothing in this session chooses, retries, or substitutes a planner agent. A `failed` entry whose error says no model resolved is a settings problem, not a story problem: park the story with that error verbatim so your human partner sees the override key to set.
 
 ## kit:build-flow on this harness
 

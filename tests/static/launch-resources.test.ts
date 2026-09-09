@@ -27,12 +27,12 @@ describe("plugins/kit-claude launch.md documents concrete model pinning", () => 
 });
 
 describe("plugins/kit-omp launch.md documents role-based agent selection", () => {
-  it.each(["build-flow", "code-review"])("skills/%s/launch.md never mentions Workflow( and documents kit-worker/kit-arbiter/modelRoles", (skill) => {
+  it.each(["build-flow", "code-review"])("skills/%s/launch.md never mentions Workflow( and documents kit-worker/kit-arbiter and the per-agent override", (skill) => {
     const text = readFileSync(resolve(KIT_OMP_ROOT, "skills", skill, "launch.md"), "utf-8");
     expect(text).not.toContain("Workflow(");
     expect(text).toContain("kit-worker");
     expect(text).toContain("kit-arbiter");
-    expect(text).toMatch(/modelRoles/);
+    expect(text).toContain("task.agentModelOverrides");
   });
 });
 

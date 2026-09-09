@@ -16,7 +16,7 @@ Never edit or write files under the configured `storiesDir` (default `stories/`)
 ## Starting a run
 
 1. Parse the goal scope from the ask: whole board ("complete all stories"), an epic (`epic:st-9c01`), an explicit list of ids, or a single story.
-2. Multi-story goal → `story loop start --goal "<scope>"`. The CLI binds the loop to YOUR session (your harness adapter supplies the session id as `STORY_SESSION_ID`) — only this session receives its re-prompts, and other sessions' loops never address you. From now on the loop re-prompts you with the next story at each turn end — never "keep going" on your own initiative, and never touch the loop state files.
+2. Multi-story goal → `story loop start --goal "<scope>"`. The CLI binds the loop to YOUR session (your harness adapter supplies the session id as `STORY_SESSION_ID`) — only this session receives its re-prompts, and other sessions' loops never address you. From now on the loop re-prompts you with the next story at each turn end — never "keep going" on your own initiative, and never touch the loop state files. The loop is the only continuation mechanism: do not also run it under a harness goal/autonomy mode (OMP's `/goal`, for example) — two drivers fight over when to stop, and the loop's stop is the one the board records.
 3. Single-story ask → skip the loop; run one iteration of the procedure below.
 
 While a loop is bound to your session, the guard also denies the ask-the-user tool: a run is unattended by definition. A question only a human can answer is a park (step 6), never a prompt.
@@ -41,7 +41,7 @@ Launch it exactly as `launch.md` in this skill's directory describes for your ha
 
 The result is `{ status, planned, unimplementable, failed }`. Per story:
 
-- `planned` → save its `plan` to a scratch file → `story update <id> --plan-file <file>`; hold its `batches` for step 4.
+- `planned` → `story update <id> --plan-file <file>` with its `plan`, and hold its `batches` for step 4. `launch.md` says where your harness delivers them: a file the runner already wrote, or the result itself. Never retype either from a truncated snapshot.
 - `unimplementable` → `story park <id> --question "<its question>"` and move on.
 - `failed` → `story park <id> --question "planner failed: <error>"` and move on. A planner failure is never a tier-selection problem — there is no alternative-tier path, and complexity cannot change while the story is in-progress.
 
@@ -59,10 +59,12 @@ Invoke kit:build-flow with the planner's `<batches>` as `args.batches` — never
 
 ### 5. Discovered work
 
-Out-of-scope work you uncover → file it, don't do it:
+Out-of-scope work you uncover → file it, don't do it. Write the whole spec at filing time — the CLI refuses a story without a description and at least one acceptance criterion, and the next claimant plans from nothing else:
 
 ```bash
-story create --title "…" --type bug --discovered-from <id> [--touches …]
+story create --title "…" --type bug --discovered-from <id> \
+  --description "What is wrong, where, and why it is out of scope here" \
+  --ac "Mechanically checkable outcome" --ac "Another one" [--touches …]
 ```
 
 Then return to the claimed story. Scope creep breaks the sizing contract.
@@ -82,9 +84,9 @@ story park <id> --question "Specific, answerable question — include the option
 `story show <id>` lists the story's gates. For each `kind: review` gate, before closing:
 
 1. Run its `capture` command from the worktree; note the artifact paths.
-2. Dispatch the gate's persona as a subagent (see Personas) with the story file path + artifact paths.
-3. Persist the returned verdict: `story record <id> --gate <name> --verdict pass|fail --evidence <artifact-path>`.
-4. On `fail` → fix per the persona's notes, re-capture, re-dispatch — within the per-story fix budget.
+2. Dispatch the gate's persona as a subagent (see Personas) with the whole evidence bundle: story file path, artifact paths, the worktree path, and build-flow's verification summary path. The persona judges every acceptance criterion against that bundle, so anything you leave out is a fail, not a smaller review.
+3. Persist the returned verdict: `story record <id> --gate <name> --verdict pass|fail --evidence <artifact-path>` — record a `fail` too, before you touch anything.
+4. On `fail` → fix what the persona named (code, capture coverage, or the capture script), re-capture, re-dispatch — within the per-story fix budget.
 
 ### 8. Close
 

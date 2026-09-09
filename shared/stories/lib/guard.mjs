@@ -65,7 +65,7 @@ export function classifyGuard(root, config, { tool, path, session }) {
     const id = ID_SNIFF.exec(basename(rel))?.[1];
     const hint = id
       ? `story update ${id} --status <status>, story note ${id} --body '...', or story park ${id} --question '...'`
-      : "story create --title '...' --type <type> [--body-file <path>]";
+      : "story create --title '...' --type <type> --description '...' --ac '...' (or --body-file <path>)";
     return {
       allow: false,
       reason: `Files under ${stories}/ are managed by the story CLI - never hand-edit the board. Use: ${hint}. Read views: story show <id>, story board.`,

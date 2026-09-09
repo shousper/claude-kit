@@ -159,7 +159,7 @@ describe("integratePrMode", () => {
 describe("story done → integratePrMode dispatch (pr mode, end to end)", () => {
   test("done in a merge:pr repo opens a PR and lands in-review with reconciled touches, no claim", async () => {
     const repo = await makeRepo({ ...DEFAULT_CONFIG, merge: "pr" });
-    const created = await runStory(repo.root, ["create", "--title", "pr story", "--touches", "declared/**", "--json"]);
+    const created = await runStory(repo.root, ["create", "--title", "pr story", "--description", "d", "--ac", "a", "--touches", "declared/**", "--json"]);
     const { id } = created.json() as { id: string };
     expect((await runStory(repo.root, ["claim", id, "--session", "w1"])).code).toBe(0);
     const wt = worktreePath(repo.root, id);

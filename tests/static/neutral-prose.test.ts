@@ -67,3 +67,24 @@ describe("kit-omp agents carry no vendor model ids", () => {
     });
   }
 });
+
+describe("kit-omp agents resolve through OMP's built-in roles only", () => {
+  // A plugin cannot ship modelRoles defaults, so a chain entry outside this set resolves
+  // to nothing on a fresh install ("No model selected", observed 2026-09-07). The arbiter
+  // is the run's deep-judgment tier and must never fall through to the worker tier.
+  const BUILT_IN = ["@default", "@smol", "@slow", "@vision", "@plan", "@commit", "@tiny", "@task", "@advisor"];
+  const chains: Record<string, string[]> = {
+    "kit-worker": ["@task", "@default"],
+    "kit-verifier": ["@task", "@default"],
+    "kit-arbiter": ["@slow", "@default"],
+  };
+  for (const [name, chain] of Object.entries(chains)) {
+    it(`agents/${name}.md declares ${chain.join(" → ")}`, () => {
+      const text = readFileSync(resolve(KIT_OMP_ROOT, "agents", `${name}.md`), "utf-8");
+      const model = /^model:\s*(.+)$/m.exec(text)?.[1] ?? "";
+      const declared = [...model.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+      expect(declared).toEqual(chain);
+      for (const spec of declared) expect(BUILT_IN).toContain(spec);
+    });
+  }
+});

@@ -19,7 +19,7 @@ import { LOCK, withLock } from "./locks.mjs";
 import { classifyGuard } from "./guard.mjs";
 import { runDoctor, migrateLayout } from "./doctor.mjs";
 
-const LIST_FLAGS = new Set(["depends-on", "touches", "gates"]);
+const LIST_FLAGS = new Set(["depends-on", "touches", "gates", "ac"]);
 
 export function parseArgv(argv) {
   const [cmd, ...rest] = argv;
@@ -187,26 +187,57 @@ function initConfigFromFile(ctx) {
 
 // ---------------------------------------------------------------- create
 
-const DEFAULT_BODY = `
-${board.SECTIONS.DESCRIPTION}
+/** Body assembled from --description / --ac. The other sections are present
+ *  but empty: the plan is filed by `story update --plan-file`, notes and
+ *  questions are appended by their commands. */
+const bodyFromFlags = (description, acs) => [
+  "",
+  board.SECTIONS.DESCRIPTION,
+  "",
+  description.trim(),
+  "",
+  board.SECTIONS.ACCEPTANCE,
+  "",
+  ...acs.map((ac) => `- [ ] ${ac.trim()}`),
+  "",
+  board.SECTIONS.PLAN,
+  "",
+  board.SECTIONS.NOTES,
+  "",
+  board.SECTIONS.QUESTIONS,
+  "",
+].join("\n");
 
-${board.SECTIONS.ACCEPTANCE}
+const words = (s) => s.split(/\s+/).filter(Boolean).length;
 
-- [ ] …
-
-${board.SECTIONS.PLAN}
-
-${board.SECTIONS.NOTES}
-
-${board.SECTIONS.QUESTIONS}
-`;
+/** A story is only worth filing when a worker can act on it unaided: a
+ *  Description with content and, for anything but an epic, at least one
+ *  acceptance checkbox. Applies to --body-file too, so a placeholder body
+ *  is refused here instead of surfacing as a bare story at claim time. */
+function assertActionableBody(body, type) {
+  if (words(board.readBodySection(body, board.SECTIONS.DESCRIPTION)) === 0) {
+    throw new CliError(`a story needs a Description — pass --description "…" (or a --body-file with a filled ${board.SECTIONS.DESCRIPTION} section)`);
+  }
+  if (type === "epic") return;
+  if (!/^\s*- \[[ xX]\] \S/m.test(board.readBodySection(body, board.SECTIONS.ACCEPTANCE))) {
+    throw new CliError(`a story needs at least one acceptance criterion — pass --ac "…" (repeatable) or a --body-file with checkboxes under ${board.SECTIONS.ACCEPTANCE}`);
+  }
+}
 
 async function cmdCreate(ctx) {
   const { root, config } = resolveProject(ctx);
   if (typeof ctx.flags.title !== "string" || !ctx.flags.title.trim()) {
     throw new CliError("--title is required");
   }
-  const body = ctx.flags["body-file"] ? readFlagFile(ctx, "body-file") : DEFAULT_BODY;
+  const type = ctx.flags.type ?? "feature";
+  let body;
+  if (ctx.flags["body-file"]) {
+    body = readFlagFile(ctx, "body-file");
+  } else {
+    const description = typeof ctx.flags.description === "string" ? ctx.flags.description : "";
+    body = bodyFromFlags(description, ctx.flags.ac ?? []);
+  }
+  assertActionableBody(body, type);
   const story = await withLock(root, LOCK.BOARD, () => {
     const all = board.loadStories(root, config, { includeArchive: true });
     const s = board.applyDefaults({

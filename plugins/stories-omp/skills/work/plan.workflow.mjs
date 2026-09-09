@@ -4,12 +4,17 @@ export const meta = {
   phases: [{ title: 'Plan' }],
 }
 
-// Host bridges: the OMP eval kernel installs agent/log/phase as globals of its worker VM,
+// Host bridges: the OMP eval kernel installs agent/log/phase/write as globals of its worker VM,
 // so run() binds them itself; the launching cell passes the args array and nothing else.
 // The optional second parameter overrides individual bridges (tests use it; a launch never
 // should). agent(prompt, { agent, label, schema }) returns a handle at once; the result
 // comes from `await handle.wait({ timeout })` (SECONDS, in an options object), which
 // rejects when the agent failed, yielded off-schema, was cancelled, or timed out.
+//
+// Every planned story is also written to local://stories/<id>.plan.md (the plan, for
+// `story update --plan-file`) and local://stories/<id>.plan.json (the whole row, for
+// build-flow's batches). A backgrounded cell's return value reaches the worker through a
+// truncating job snapshot; the files are the durable copy it reads instead.
 
 // args: [ { id, complexity, worktree, storyBody }, ... ] — one entry per claimed story.
 // The worker session passes data only; every tier decision lives in THIS file.
@@ -70,9 +75,25 @@ const plannerPrompt = (s) => [
 const blocked = (reason) => ({ status: 'blocked', reason, planned: [], unimplementable: [], failed: [] })
 const errorText = (e) => (e && e.message ? e.message : String(e))
 
+// OMP raises this before the child starts when the agent's whole model chain resolves to
+// nothing. Name the agent and the override key so the parked question is actionable.
+const failure = (tier, e) => {
+  const text = errorText(e)
+  if (/no model/i.test(text)) {
+    return `no model resolves for agent ${tier} (its chain uses OMP's built-in plan/slow/default roles) — set task.agentModelOverrides.${tier} in OMP settings or populate those roles in /model → Roles, then unpark; there is no alternative-tier path`
+  }
+  return `planner agent did not complete: ${text} — park the story; there is no alternative-tier path`
+}
+
 function bindHost(override) {
   const pick = (name) => (override && override[name] !== undefined ? override[name] : globalThis[name])
-  return { agent: pick('agent'), phase: pick('phase') ?? (() => {}), log: pick('log') ?? (() => {}) }
+  return { agent: pick('agent'), phase: pick('phase') ?? (() => {}), log: pick('log') ?? (() => {}), write: pick('write') }
+}
+
+async function persist(write, row) {
+  if (typeof write !== 'function') return
+  await write(`local://stories/${row.id}.plan.md`, row.plan)
+  await write(`local://stories/${row.id}.plan.json`, JSON.stringify(row, null, 2))
 }
 
 export async function run(args, hostOverride) {
@@ -83,7 +104,7 @@ export async function run(args, hostOverride) {
   if (typeof host.agent !== 'function') {
     return blocked('story-planners: no agent() global — this module must run from an OMP eval cell (language: js), where the kernel installs agent(); it cannot run under bash, node, or bun.')
   }
-  const { agent, phase, log } = host
+  const { agent, phase, log, write } = host
 
   let a = args ?? []
   if (typeof a === 'string') {
@@ -105,7 +126,7 @@ export async function run(args, hostOverride) {
     try {
       handle = await agent(plannerPrompt(s), { agent: tier, label: `plan-${s.id}`, schema: PLAN_SCHEMA })
     } catch (e) {
-      return { id: s.id, status: 'planner-failed', agent: tier, error: `planner agent did not complete: ${errorText(e)} — park the story; there is no alternative-tier path` }
+      return { id: s.id, status: 'planner-failed', agent: tier, error: failure(tier, e) }
     }
     let r
     try {
@@ -117,7 +138,7 @@ export async function run(args, hostOverride) {
         // already settled
       }
       const timedOut = e && e.name === 'TimeoutError'
-      return { id: s.id, status: 'planner-failed', agent: tier, error: `planner agent did not complete: ${errorText(e)}${timedOut ? ' (cancelled)' : ''} — park the story; there is no alternative-tier path` }
+      return { id: s.id, status: 'planner-failed', agent: tier, error: `${failure(tier, e)}${timedOut ? ' (cancelled)' : ''}` }
     }
     if (!r) {
       return { id: s.id, status: 'planner-failed', agent: tier, error: 'planner agent returned nothing — park the story; there is no alternative-tier path' }
@@ -126,7 +147,9 @@ export async function run(args, hostOverride) {
       return { id: s.id, status: 'unimplementable', agent: tier, question: r.unimplementable.question }
     }
     if (typeof r.plan === 'string' && r.plan.trim() && Array.isArray(r.batches) && r.batches.length > 0) {
-      return { id: s.id, status: 'planned', agent: tier, plan: r.plan, batches: r.batches }
+      const row = { id: s.id, status: 'planned', agent: tier, plan: r.plan, batches: r.batches }
+      await persist(write, row)
+      return row
     }
     return { id: s.id, status: 'planner-failed', agent: tier, error: 'planner returned neither a complete plan+batches nor an unimplementable question' }
   }))

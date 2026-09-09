@@ -28,7 +28,7 @@ describe("bin/story end-to-end", () => {
   test("create → ready → claim → work → done drives a story to merged", async () => {
     const repo = await makeRepo();
 
-    const created = story(repo.root, "create", "--title", "Smoke story", "--type", "chore", "--json");
+    const created = story(repo.root, "create", "--title", "Smoke story", "--description", "d", "--ac", "a", "--type", "chore", "--json");
     expect(created.code).toBe(0);
     const { id } = JSON.parse(created.stdout) as { id: string };
     expect(id).toMatch(/^st-[0-9a-f]{4}$/);
@@ -96,7 +96,7 @@ describe("incident scenario: controller capture, now inert", () => {
 
     // 1. story create: the .md file carries no execution state; state lives
     // in the local state store instead.
-    const created = story(repo.root, "create", "--title", "Loop story", "--type", "chore", "--json");
+    const created = story(repo.root, "create", "--title", "Loop story", "--description", "d", "--ac", "a", "--type", "chore", "--json");
     expect(created.code).toBe(0);
     const { id } = JSON.parse(created.stdout) as { id: string };
 

@@ -37,6 +37,7 @@ async function runClaude(args: unknown, respond?: Respond) {
 async function runOmpRunner(args: unknown, respond?: Respond) {
   const calls: OmpOpts[] = [];
   const waits: unknown[] = [];
+  const files: Record<string, string> = {};
   const agent = async (prompt: string, opts: OmpOpts) => {
     calls.push(opts);
     if (!respond) throw new Error("agent() must not run for a rejected payload");
@@ -54,8 +55,9 @@ async function runOmpRunner(args: unknown, respond?: Respond) {
       status: () => ({}),
     };
   };
-  const out = (await runOmp(args, { agent, phase: () => {}, log: () => {} })) as Envelope;
-  return { out, calls, waits };
+  const write = async (path: string, content: string) => { files[path] = content; return path; };
+  const out = (await runOmp(args, { agent, phase: () => {}, log: () => {}, write })) as Envelope;
+  return { out, calls, waits, files };
 }
 
 const story = (id: string, complexity?: string) => ({ id, complexity, worktree: `/wt/${id}`, storyBody: `BODY:${id}` });
@@ -144,5 +146,19 @@ describe("planner runners: tier mapping", () => {
     expect(out.failed[0].error).toMatch(/did not complete/);
     expect(((await runOmp({ agent: async () => ({}) } as never)) as Envelope).status).toBe("blocked");
     expect(((await runOmp([story("st-0001")])) as Envelope).reason).toMatch(/agent\(\) global/);
+  });
+
+  it("omp writes each planned story's plan and batches to local://stories, and nothing for failures", async () => {
+    const { files } = await runOmpRunner([story("st-0001"), story("st-0002")], (prompt) =>
+      bodyOf(prompt) === "st-0001" ? planned : { plan: "", batches: [] });
+    expect(Object.keys(files).sort()).toEqual(["local://stories/st-0001.plan.json", "local://stories/st-0001.plan.md"]);
+    expect(files["local://stories/st-0001.plan.md"]).toBe(planned.plan);
+    expect(JSON.parse(files["local://stories/st-0001.plan.json"])).toMatchObject({ id: "st-0001", status: "planned", batches: planned.batches });
+  });
+
+  it("omp turns a model-resolution failure into an error naming the agent and its override key", async () => {
+    const { out } = await runOmpRunner([story("st-0001", "hard")], () => { throw new Error("No model selected.\n\nUse /login"); });
+    expect(out.failed[0].error).toContain("story-planner-hard");
+    expect(out.failed[0].error).toContain("task.agentModelOverrides.story-planner-hard");
   });
 });

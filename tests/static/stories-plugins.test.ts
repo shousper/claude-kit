@@ -145,13 +145,18 @@ describe("plugins/stories-omp", () => {
     expect(walkFiles(STORIES_OMP_ROOT).filter((p) => /Workflow\(|TaskOutput/.test(readFileSync(p, "utf-8"))).map((p) => relative(ROOT, p))).toEqual([]);
   });
 
-  it("ships the three planner agents with role aliases and no vendor model ids", () => {
-    for (const tier of ["routine", "hard", "frontier"]) {
+  it("ships the three planner agents on built-in roles, never the task tier, and no vendor model ids", () => {
+    const chains: Record<string, string[]> = {
+      routine: ["@plan", "@default"],
+      hard: ["@slow", "@plan"],
+      frontier: ["@slow"],
+    };
+    for (const [tier, chain] of Object.entries(chains)) {
       const raw = readFileSync(resolve(STORIES_OMP_ROOT, "agents", `story-planner-${tier}.md`), "utf-8");
       const { frontmatter, body } = extractFrontmatter(raw);
       expect(frontmatter.name).toBe(`story-planner-${tier}`);
       expect(typeof frontmatter.description).toBe("string");
-      expect((frontmatter.model as string[])[0]).toBe(`@story_planner_${tier}`);
+      expect(frontmatter.model).toEqual(chain);
       expect(frontmatter.thinkingLevel).toBe(tier === "routine" ? "high" : "xhigh");
       expect(body.trim().length).toBeGreaterThan(0);
       expect(raw).not.toMatch(/anthropic\//);

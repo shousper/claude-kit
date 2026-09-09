@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { EXIT, hasLegacyMarker, hasMarker } from "../lib/util.mjs";
 
@@ -35,6 +36,31 @@ export function findStoriesRoot(cwd: string): string | null {
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+/** `model:` chain of every `agents/story-planner-*.md`, keyed by agent name.
+ *  The frontmatter is the single source of truth for which roles a planner
+ *  needs, so the preflight reads it rather than repeating the chains here. */
+export function plannerModelChains(pluginRoot: string): Record<string, string[]> {
+  const dir = resolve(pluginRoot, "agents");
+  const chains: Record<string, string[]> = {};
+  for (const file of readdirSync(dir).filter((f) => /^story-planner-.*\.md$/.test(f)).sort()) {
+    const text = readFileSync(resolve(dir, file), "utf8");
+    const name = /^name:\s*(\S+)/m.exec(text)?.[1];
+    const model = /^model:\s*(.+)$/m.exec(text)?.[1] ?? "";
+    if (!name) continue;
+    chains[name] = [...model.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  }
+  return chains;
+}
+
+/** Planner agents whose whole chain resolves to no model under the current
+ *  settings. `resolve` is `ctx.models.resolve`; anything it cannot map is
+ *  reported before a run claims a story and parks it on that error. */
+export function unresolvedPlanners(chains: Record<string, string[]>, resolveModel: (spec: string) => unknown): string[] {
+  return Object.entries(chains)
+    .filter(([, chain]) => !chain.some((spec) => resolveModel(spec) !== undefined))
+    .map(([name]) => name);
 }
 
 /** OMP tools whose call writes a file. `edit` wire-renames itself to
@@ -111,6 +137,7 @@ export interface MinimalHookContext {
   cwd?: string;
   hasUI?: boolean;
   sessionManager?: { getSessionId(): string };
+  models?: { resolve(spec: string): unknown };
 }
 
 export interface ToolCallLike {
@@ -148,6 +175,17 @@ export function createHandlers(pluginRoot: string, deps: StoriesHookDeps): Stori
   return {
     async sessionStart(_event, ctx) {
       await injectContext(ctx);
+      if (!ctx?.models || !rootFor(ctx)) return;
+      let missing: string[];
+      try {
+        missing = unresolvedPlanners(plannerModelChains(pluginRoot), (spec) => ctx.models!.resolve(spec));
+      } catch {
+        return; // A preflight failure must never block a session.
+      }
+      if (missing.length === 0) return;
+      const text = `stories: no model resolves for ${missing.join(", ")} — every story of that complexity will park at planning. Set task.agentModelOverrides.<agent> in OMP settings (or /agents), or populate the built-in plan/slow roles in /model → Roles.`;
+      deps.notify(text);
+      deps.sendMessage(text);
     },
 
     async sessionCompact(_event, ctx) {

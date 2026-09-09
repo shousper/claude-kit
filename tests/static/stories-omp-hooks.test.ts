@@ -2,7 +2,8 @@ import { afterEach, describe, it, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { createHandlers, findStoriesRoot, guardTarget, stampSessionEnv, type ExecCall } from "../../plugins/stories-omp/omp/hooks";
+import { createHandlers, findStoriesRoot, guardTarget, plannerModelChains, stampSessionEnv, unresolvedPlanners, type ExecCall } from "../../plugins/stories-omp/omp/hooks";
+import { STORIES_OMP_ROOT } from "../utils/paths";
 
 const PLUGIN_ROOT = "/plugin-root";
 const STORY = resolve(PLUGIN_ROOT, "bin/story");
@@ -34,6 +35,46 @@ describe("findStoriesRoot", () => {
     const legacy = project("legacy");
     expect(findStoriesRoot(legacy)).toBe(legacy);
     expect(findStoriesRoot(project("none"))).toBeNull();
+  });
+});
+
+describe("planner model preflight", () => {
+  it("reads every planner's chain from its frontmatter and reports only agents with no resolvable entry", () => {
+    const chains = plannerModelChains(STORIES_OMP_ROOT);
+    expect(Object.keys(chains).sort()).toEqual(["story-planner-frontier", "story-planner-hard", "story-planner-routine"]);
+    for (const chain of Object.values(chains)) expect(chain.length).toBeGreaterThan(0);
+    const only = (ok: string[]) => (spec: string) => (ok.includes(spec) ? { id: spec } : undefined);
+    expect(unresolvedPlanners(chains, only(["@plan", "@slow", "@default"]))).toEqual([]);
+    expect(unresolvedPlanners(chains, only(["@plan", "@default"]))).toEqual(["story-planner-frontier"]);
+    expect(unresolvedPlanners(chains, only(["@default"]))).toEqual(["story-planner-frontier", "story-planner-hard"]);
+    expect(unresolvedPlanners(chains, () => undefined)).toEqual(Object.keys(chains).sort());
+  });
+
+  it("session_start names unresolvable planners to the user and the model, and stays quiet when all resolve", async () => {
+    const dir = project();
+    const make = (ok: string[]) => {
+      const messages: string[] = [];
+      const notes: string[] = [];
+      const handlers = createHandlers(STORIES_OMP_ROOT, {
+        exec: async () => ({ stdout: "", stderr: "", code: 0 }),
+        sendMessage: (t) => { messages.push(t); },
+        notify: (t) => { notes.push(t); },
+      });
+      const models = { resolve: (spec: string) => (ok.includes(spec) ? { id: spec } : undefined) };
+      return { handlers, messages, notes, models };
+    };
+    const bad = make(["@default"]);
+    await bad.handlers.sessionStart({}, { ...ctx(dir), models: bad.models });
+    expect(bad.notes).toHaveLength(1);
+    expect(bad.messages).toEqual(bad.notes);
+    expect(bad.notes[0]).toContain("story-planner-hard");
+    expect(bad.notes[0]).toContain("story-planner-frontier");
+    expect(bad.notes[0]).not.toContain("story-planner-routine");
+    expect(bad.notes[0]).toContain("task.agentModelOverrides");
+    const good = make(["@plan", "@slow"]);
+    await good.handlers.sessionStart({}, { ...ctx(dir), models: good.models });
+    expect(good.notes).toEqual([]);
+    expect(good.messages).toEqual([]);
   });
 });
 

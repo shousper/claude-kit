@@ -471,10 +471,18 @@ export const SECTIONS = Object.freeze({
 
 const ensureTrailingNewline = (s) => s.replace(/\n*$/, "\n");
 
+const SECTION_HEADINGS = new Set(Object.values(SECTIONS).map((h) => h.toLowerCase()));
+
+/** True when `line` is one of the five story section headings (any case). A
+ *  plan or note may carry its own "## …" sub-headings; those never end a
+ *  section, otherwise a plan starting with "## Context" reads back empty and
+ *  `story done` reports the planning step as skipped. */
+const isSectionHeading = (line) => SECTION_HEADINGS.has(line.trim().toLowerCase());
+
 /**
- * Locate `heading` in `lines` and the boundary before the next "## " heading
- * (or end of body). Returns { start, end } (line indices into `lines`), or
- * null when `heading` is absent. The single "next '## ' heading" scan —
+ * Locate `heading` in `lines` and the boundary before the next story section
+ * heading (or end of body). Returns { start, end } (line indices into
+ * `lines`), or null when `heading` is absent. The single boundary scan —
  * readBodySection, appendToSection, setSection, and getSection all resolve
  * their section boundary through this.
  */
@@ -484,7 +492,7 @@ function sectionBounds(lines, heading, { caseInsensitive = false } = {}) {
   const start = lines.findIndex(matches);
   if (start === -1) return null;
   let end = start + 1;
-  while (end < lines.length && !/^##\s/.test(lines[end])) end++;
+  while (end < lines.length && !isSectionHeading(lines[end])) end++;
   return { start, end };
 }
 

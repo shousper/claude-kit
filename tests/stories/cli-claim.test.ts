@@ -171,7 +171,7 @@ describe("story claim — stale branch reuse", () => {
   // a strictly-behind branch to base (a diverged branch is left alone).
   test("re-claiming an existing zero-commit branch fast-forwards it to base", async () => {
     const repo = await makeRepo();
-    const created = await runStory(repo.root, ["create", "--title", "stale branch", "--json"]);
+    const created = await runStory(repo.root, ["create", "--title", "stale branch", "--description", "d", "--ac", "a", "--json"]);
     const { id } = created.json() as { id: string };
     git(repo.root, "branch", branchName(id)); // branch pinned at current main
     writeFileSync(join(repo.root, "prereq.ts"), "prereq merged while parked\n");

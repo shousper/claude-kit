@@ -26,7 +26,7 @@ Then run `stories:setup` once in the project.
 
 `bin/` and `lib/` are the shared CLI; `bin/story` runs under the Node on your `PATH` (22.7 or newer).
 
-The execution-time planner runs from an `eval` cell (`skills/work/plan.workflow.mjs`) and dispatches to one of three bundled agents by story complexity: `story-planner-routine`, `story-planner-hard`, `story-planner-frontier`. Each resolves its model through a `modelRoles` alias (`story_planner_routine`, `story_planner_hard`, `story_planner_frontier`); routine and hard fall through to kit's `kit_worker` and `kit_arbiter` roles, so pinning kit's tiers is enough, while frontier falls through to the session model because that tier is a human opt-in. `skills/work/launch.md` has the launch mechanics for the planner, the review personas, and kit:build-flow.
+The execution-time planner runs from an `eval` cell (`skills/work/plan.workflow.mjs`) and dispatches to one of three bundled agents by story complexity: `story-planner-routine`, `story-planner-hard`, `story-planner-frontier`. They resolve through OMP's built-in roles (`plan`, `slow`, `default`) rather than plugin-specific `modelRoles` keys, so a fresh install plans without configuration; the `task` worker tier is never a planner fallback. Retarget one agent with `task.agentModelOverrides.<agent-name>`. On session start the extension resolves each planner agent's chain and reports any that cannot resolve. `skills/work/launch.md` has the launch mechanics for the planner, the review personas, and kit:build-flow.
 
 ## License
 

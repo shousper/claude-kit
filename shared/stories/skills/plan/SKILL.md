@@ -60,7 +60,7 @@ story create --title "Add ×N multiplier gates" --type feature \
   --gates test,e2e --complexity hard --body-file "$SCRATCH/story-body.md"
 ```
 
-Write each body to a scratch file for `--body-file`.
+Write each body to a scratch file for `--body-file`. The CLI refuses a body whose Description is empty or (for a non-epic) whose Acceptance Criteria has no checkbox, so a placeholder can never reach the board.
 
 ### 6. Verify
 
