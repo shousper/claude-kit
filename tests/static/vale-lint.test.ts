@@ -3,7 +3,7 @@ import { mkdtemp, writeFile, rm, cp, realpath } from "fs/promises";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { runNeutralScript } from "../utils/hook-workspace";
-import { ROOT, WRITING_HOOKS_DIR } from "../utils/paths";
+import { ROOT, WRITING_HOOKS_DIR, WRITING_ROOTS } from "../utils/paths";
 
 const HAS_VALE = Bun.which("vale") !== null;
 const FIXTURES = resolve(ROOT, "tests/fixtures/vale");
@@ -41,6 +41,16 @@ describe("vale-lint.sh", () => {
       expect(r.stdout).not.toContain("Writing.");
       expect(lines.filter((l) => /^  [A-Za-z]+ x\d+/.test(l)).length).toBeLessThanOrEqual(6);
       expect(lines.length).toBeLessThanOrEqual(14);
+    });
+
+    it("finds its Vale config when invoked through each plugin's symlinked hooks directory", async () => {
+      // The plugins reach the script through a hooks/ symlink; the config sits beside the
+      // physical script. A logical `pwd` made vale fail on a missing config and the script
+      // then exited silently, so no plugin ever produced a summary.
+      for (const dir of [resolve(WRITING_ROOTS.omp, "hooks"), resolve(WRITING_ROOTS.claude, "hooks/shared")]) {
+        const r = await runNeutralScript("vale-lint.sh", { dir, args: [resolve(FIXTURES, "bad.md")], cwd: FIXTURES });
+        expect(r.stdout).toMatch(/^vale: \d+ findings in bad\.md$/m);
+      }
     });
 
     it("in edit mode reports only lines that changed since HEAD", async () => {

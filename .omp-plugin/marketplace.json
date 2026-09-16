@@ -14,7 +14,7 @@
     {
       "name": "writing",
       "description": "Developer-documentation writing voice, a documentation-authoring skill, and an advisory Vale lint hook",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "source": "./plugins/writing-omp"
     },
     {

@@ -16,7 +16,9 @@ command -v jq >/dev/null 2>&1 || exit 0
 case "$file" in *.md|*.mdx|*.rst|*.adoc|*.txt|*.html) ;; *) exit 0 ;; esac
 abs="$(cd "$(dirname "$file")" && pwd -P)/$(basename "$file")"
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# -P: both plugins reach this script through a symlinked hooks/ directory, and
+# the Vale config lives beside the physical location, not the link.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 config="${WRITING_VALE_CONFIG:-$script_dir/../vale/.vale.ini}"
 max_rules="${WRITING_VALE_MAX_RULES:-6}"
 max_refs="${WRITING_VALE_MAX_REFS:-3}"

@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 
 /**
  * Native OMP hook: after a successful write/edit of a documentation file, run
@@ -7,6 +7,11 @@ import { resolve } from "node:path";
  * hooks/ symlink) and append its summary, if any, to the tool result. The pure
  * pieces are unit-tested without an OMP runtime; `registerHooks` is the only
  * part that touches `ExtensionAPI`.
+ *
+ * Paths arrive relative to the session's working directory, which is not the
+ * OMP process's cwd when the session runs in a worktree or after `/move`. Every
+ * path is resolved against `ctx.cwd` and the script runs there, so its
+ * existence check and edit-mode `git diff` see the session's checkout.
  */
 
 /** `edit` wire-renames itself to `apply_patch` in apply_patch mode. */
@@ -25,21 +30,44 @@ export interface ToolResultLike {
   content?: unknown[];
 }
 
+export interface MinimalHookContext {
+  cwd?: string;
+}
+
 export interface ExecResult {
   stdout: string;
   stderr: string;
   code: number;
 }
 
-export type ExecFn = (command: string, args: string[]) => Promise<ExecResult>;
+export interface ExecOpts {
+  cwd: string;
+}
 
-export function collectDocTarget(toolName: string, input: Record<string, unknown> | undefined | null): LintTarget | null {
+export type ExecFn = (command: string, args: string[], opts: ExecOpts) => Promise<ExecResult>;
+
+/** The runtime derives `path` (one file) or `paths` (a multi-file hashline
+ *  batch) from the edit payload; a write carries `path` itself. Both are read
+ *  and each documentation file becomes its own lint target, resolved against
+ *  `cwd`. */
+export function collectDocTargets(toolName: string, input: Record<string, unknown> | undefined | null, cwd: string): LintTarget[] {
   const mode = MODE_BY_TOOL[toolName];
-  if (!mode) return null;
-  const path = input?.path;
-  if (typeof path !== "string" || path.length === 0) return null;
-  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  return DOC_EXTENSIONS[ext] ? { path, mode } : null;
+  if (!mode) return [];
+  const raw: unknown[] = [];
+  if (typeof input?.path === "string") raw.push(input.path);
+  if (Array.isArray(input?.paths)) raw.push(...input.paths);
+  const targets: LintTarget[] = [];
+  const seen = new Set<string>();
+  for (const p of raw) {
+    if (typeof p !== "string" || p.length === 0) continue;
+    const ext = p.slice(p.lastIndexOf(".") + 1).toLowerCase();
+    if (!DOC_EXTENSIONS[ext]) continue;
+    const path = isAbsolute(p) ? p : resolve(cwd, p);
+    if (seen.has(path)) continue;
+    seen.add(path);
+    targets.push({ path, mode });
+  }
+  return targets;
 }
 
 export function buildLintCommand(pluginRoot: string, target: LintTarget): string[] {
@@ -51,27 +79,32 @@ export function appendSummary(content: unknown[] | undefined, summary: string): 
 }
 
 export function createToolResultHandler(pluginRoot: string, exec: ExecFn) {
-  return async (event: ToolResultLike): Promise<{ content: unknown[] } | undefined> => {
+  return async (event: ToolResultLike, ctx?: MinimalHookContext): Promise<{ content: unknown[] } | undefined> => {
     if (event.isError) return undefined;
-    const target = collectDocTarget(event.toolName, event.input);
-    if (!target) return undefined;
+    const cwd = ctx?.cwd ?? process.cwd();
+    const targets = collectDocTargets(event.toolName, event.input, cwd);
+    if (targets.length === 0) return undefined;
     try {
-      const [command, ...args] = buildLintCommand(pluginRoot, target);
-      const summary = (await exec(command, args)).stdout.trim();
-      return summary ? { content: appendSummary(event.content, summary) } : undefined;
+      const summaries: string[] = [];
+      for (const target of targets) {
+        const [command, ...args] = buildLintCommand(pluginRoot, target);
+        const summary = (await exec(command, args, { cwd })).stdout.trim();
+        if (summary) summaries.push(summary);
+      }
+      return summaries.length > 0 ? { content: appendSummary(event.content, summaries.join("\n")) } : undefined;
     } catch {
       return undefined; // A lint failure never affects the tool result.
     }
   };
 }
 
-async function execViaBunSpawn(command: string, args: string[]): Promise<ExecResult> {
-  const proc = Bun.spawn([command, ...args], { stdout: "pipe", stderr: "pipe" });
+async function execViaBunSpawn(command: string, args: string[], opts: ExecOpts): Promise<ExecResult> {
+  const proc = Bun.spawn([command, ...args], { cwd: opts.cwd, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   return { stdout, stderr, code };
 }
 
 export function registerHooks(pi: ExtensionAPI, pluginRoot: string): void {
   const handler = createToolResultHandler(pluginRoot, execViaBunSpawn);
-  pi.on("tool_result", async (event) => handler(event as unknown as ToolResultLike));
+  pi.on("tool_result", async (event, ctx) => handler(event as unknown as ToolResultLike, ctx as unknown as MinimalHookContext));
 }
