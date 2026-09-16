@@ -1,45 +1,55 @@
 import { describe, it, expect } from "bun:test";
 import { homedir } from "os";
 import { resolve } from "path";
-import { collectEditedPath, buildFormatCommand, resolveStateDir, createHandlers, type ExecResult, type HookHandlerDeps } from "../../plugins/kit-omp/omp/hooks";
+import { collectEditedPaths, buildFormatCommand, resolveStateDir, createHandlers, type ExecOpts, type ExecResult, type HookHandlerDeps } from "../../plugins/kit-omp/omp/hooks";
 
 const PLUGIN_ROOT = "/plugin-root";
+const CWD = "/work";
 
-describe("collectEditedPath", () => {
+describe("collectEditedPaths", () => {
   it("returns the path for a write tool result", () => {
-    expect(collectEditedPath("write", { path: "/proj/a.go" })).toBe("/proj/a.go");
+    expect(collectEditedPaths("write", { path: "/proj/a.go" }, CWD)).toEqual(["/proj/a.go"]);
   });
 
   it("returns the path for an edit tool result", () => {
-    expect(collectEditedPath("edit", { path: "/proj/b.rs" })).toBe("/proj/b.rs");
+    expect(collectEditedPaths("edit", { path: "/proj/b.rs" }, CWD)).toEqual(["/proj/b.rs"]);
   });
 
   it("returns the path for an apply_patch tool result (edit's wire name in apply_patch mode)", () => {
-    expect(collectEditedPath("apply_patch", { path: "/proj/c.ts" })).toBe("/proj/c.ts");
+    expect(collectEditedPaths("apply_patch", { path: "/proj/c.ts" }, CWD)).toEqual(["/proj/c.ts"]);
+  });
+
+  it("resolves a relative path against the session cwd, not the process cwd", () => {
+    expect(collectEditedPaths("write", { path: "src/a.go" }, "/repo/.worktrees/st-1")).toEqual(["/repo/.worktrees/st-1/src/a.go"]);
+  });
+
+  it("reads every file of a multi-file hashline batch, deduplicated", () => {
+    expect(collectEditedPaths("edit", { paths: ["a.go", "/abs/b.rs", "a.go"] }, CWD)).toEqual(["/work/a.go", "/abs/b.rs"]);
   });
 
   it("ignores reads — read is not a file-editing tool", () => {
-    expect(collectEditedPath("read", { path: "/proj/a.go" })).toBeNull();
+    expect(collectEditedPaths("read", { path: "/proj/a.go" }, CWD)).toEqual([]);
   });
 
   it("ignores unrelated tools (bash, grep, custom tools)", () => {
-    expect(collectEditedPath("bash", { command: "ls" })).toBeNull();
-    expect(collectEditedPath("grep", { pattern: "foo" })).toBeNull();
-    expect(collectEditedPath("my_custom_tool", { path: "/proj/a.go" })).toBeNull();
+    expect(collectEditedPaths("bash", { command: "ls" }, CWD)).toEqual([]);
+    expect(collectEditedPaths("grep", { pattern: "foo" }, CWD)).toEqual([]);
+    expect(collectEditedPaths("my_custom_tool", { path: "/proj/a.go" }, CWD)).toEqual([]);
   });
 
-  it("returns null when input carries no path field", () => {
-    expect(collectEditedPath("write", { content: "x" })).toBeNull();
+  it("returns nothing when input carries no path field", () => {
+    expect(collectEditedPaths("write", { content: "x" }, CWD)).toEqual([]);
   });
 
-  it("returns null when input is undefined or null", () => {
-    expect(collectEditedPath("write", undefined)).toBeNull();
-    expect(collectEditedPath("write", null)).toBeNull();
+  it("returns nothing when input is undefined or null", () => {
+    expect(collectEditedPaths("write", undefined, CWD)).toEqual([]);
+    expect(collectEditedPaths("write", null, CWD)).toEqual([]);
   });
 
-  it("returns null when path is present but not a non-empty string", () => {
-    expect(collectEditedPath("write", { path: "" })).toBeNull();
-    expect(collectEditedPath("write", { path: 42 as unknown as string })).toBeNull();
+  it("skips path entries that are not non-empty strings", () => {
+    expect(collectEditedPaths("write", { path: "" }, CWD)).toEqual([]);
+    expect(collectEditedPaths("write", { path: 42 as unknown as string }, CWD)).toEqual([]);
+    expect(collectEditedPaths("edit", { paths: ["", 7, "/abs/ok.ts"] }, CWD)).toEqual(["/abs/ok.ts"]);
   });
 });
 
@@ -73,17 +83,17 @@ describe("resolveStateDir", () => {
 function fakeDeps(execImpl?: (command: string, args: string[]) => Promise<ExecResult>): HookHandlerDeps & {
   sentMessages: string[];
   notifications: string[];
-  execCalls: { command: string; args: string[] }[];
+  execCalls: { command: string; args: string[]; opts: ExecOpts }[];
 } {
   const sentMessages: string[] = [];
   const notifications: string[] = [];
-  const execCalls: { command: string; args: string[] }[] = [];
+  const execCalls: { command: string; args: string[]; opts: ExecOpts }[] = [];
   return {
     sentMessages,
     notifications,
     execCalls,
-    exec: async (command, args) => {
-      execCalls.push({ command, args });
+    exec: async (command, args, opts) => {
+      execCalls.push({ command, args, opts });
       if (execImpl) return execImpl(command, args);
       return { stdout: "", stderr: "", code: 0 };
     },
@@ -91,6 +101,8 @@ function fakeDeps(execImpl?: (command: string, args: string[]) => Promise<ExecRe
     notify: (message) => notifications.push(message),
   };
 }
+
+const formatCall = (cwd: string, ...files: string[]) => ({ command: resolve(PLUGIN_ROOT, "hooks/format-files.sh"), args: files, opts: { cwd } });
 
 const ctxFor = (sessionId: string, cwd = "/work") => ({ cwd, hasUI: true, sessionManager: { getSessionId: () => sessionId } });
 
@@ -102,7 +114,7 @@ describe("createHandlers: sessionStart", () => {
     await handlers.sessionStart({}, ctxFor("S1"));
 
     expect(deps.sentMessages).toEqual(["governance block"]);
-    expect(deps.execCalls).toEqual([{ command: resolve(PLUGIN_ROOT, "hooks/session-context.sh"), args: ["/work"] }]);
+    expect(deps.execCalls).toEqual([{ command: resolve(PLUGIN_ROOT, "hooks/session-context.sh"), args: ["/work"], opts: { cwd: "/work" } }]);
   });
 
   it("sends nothing when the script prints only whitespace", async () => {
@@ -142,7 +154,7 @@ describe("createHandlers: toolResult", () => {
     await handlers.toolResult({ toolName: "write", input: { path: "/proj/a.go" }, isError: false }, ctxFor("S1"));
     await handlers.sessionStop({}, ctxFor("S1"));
 
-    expect(deps.execCalls).toEqual([{ command: resolve(PLUGIN_ROOT, "hooks/format-files.sh"), args: ["/proj/a.go"] }]);
+    expect(deps.execCalls).toEqual([formatCall("/work", "/proj/a.go")]);
   });
 
   it("ignores a read tool result", async () => {
@@ -173,7 +185,7 @@ describe("createHandlers: toolResult", () => {
     await handlers.toolResult({ toolName: "write", input: { path: "/proj/b.go" }, isError: false }, ctxFor("S2"));
     await handlers.sessionStop({}, ctxFor("S1"));
 
-    expect(deps.execCalls).toEqual([{ command: resolve(PLUGIN_ROOT, "hooks/format-files.sh"), args: ["/proj/a.go"] }]);
+    expect(deps.execCalls).toEqual([formatCall("/work", "/proj/a.go")]);
   });
 
   it("deduplicates repeated edits of the same file within a session", async () => {
@@ -184,7 +196,28 @@ describe("createHandlers: toolResult", () => {
     await handlers.toolResult({ toolName: "edit", input: { path: "/proj/a.go" }, isError: false }, ctxFor("S1"));
     await handlers.sessionStop({}, ctxFor("S1"));
 
-    expect(deps.execCalls).toEqual([{ command: resolve(PLUGIN_ROOT, "hooks/format-files.sh"), args: ["/proj/a.go"] }]);
+    expect(deps.execCalls).toEqual([formatCall("/work", "/proj/a.go")]);
+  });
+
+  it("records a relative path against the session cwd and formats in that cwd", async () => {
+    const deps = fakeDeps();
+    const handlers = createHandlers(PLUGIN_ROOT, deps);
+    const worktree = "/repo/.worktrees/st-1";
+
+    await handlers.toolResult({ toolName: "edit", input: { path: "src/a.go" }, isError: false }, ctxFor("S1", worktree));
+    await handlers.sessionStop({}, ctxFor("S1", worktree));
+
+    expect(deps.execCalls).toEqual([formatCall(worktree, `${worktree}/src/a.go`)]);
+  });
+
+  it("tracks every file of a multi-file hashline batch", async () => {
+    const deps = fakeDeps();
+    const handlers = createHandlers(PLUGIN_ROOT, deps);
+
+    await handlers.toolResult({ toolName: "edit", input: { paths: ["a.go", "b.rs"] }, isError: false }, ctxFor("S1"));
+    await handlers.sessionStop({}, ctxFor("S1"));
+
+    expect(deps.execCalls).toEqual([formatCall("/work", "/work/a.go", "/work/b.rs")]);
   });
 });
 
@@ -254,7 +287,7 @@ describe("createHandlers: agentEnd", () => {
     await handlers.toolResult({ toolName: "apply_patch", input: { path: "/proj/a.py" }, isError: false }, ctxFor("S1"));
     await handlers.agentEnd({}, ctxFor("S1"));
 
-    expect(deps.execCalls).toEqual([{ command: resolve(PLUGIN_ROOT, "hooks/format-files.sh"), args: ["/proj/a.py"] }]);
+    expect(deps.execCalls).toEqual([formatCall("/work", "/proj/a.py")]);
   });
 
   it("clears the Set so a later sessionStop finds nothing left", async () => {
@@ -280,6 +313,6 @@ describe("createHandlers: shared state across repeated calls", () => {
     );
     await createHandlers(PLUGIN_ROOT, deps, shared).sessionStop({}, ctxFor("S1"));
 
-    expect(deps.execCalls).toEqual([{ command: resolve(PLUGIN_ROOT, "hooks/format-files.sh"), args: ["/proj/a.go"] }]);
+    expect(deps.execCalls).toEqual([formatCall("/work", "/proj/a.go")]);
   });
 });

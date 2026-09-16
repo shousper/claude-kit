@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 
 /**
  * Native OMP hook handlers. Replaces the deleted cross-harness protocol
@@ -15,6 +15,12 @@ import { resolve } from "node:path";
  * resolution) take no OMP-shaped input and are unit-tested without an OMP
  * process. `createHandlers` builds the four testable handlers from injected
  * dependencies; `registerHooks` is the only part that touches `ExtensionAPI`.
+ *
+ * Paths arrive relative to the session's working directory, which is not the
+ * OMP process's cwd when the session runs in a worktree or after `/move`.
+ * Every edited path is resolved against `ctx.cwd` when recorded, and the
+ * formatter runs with that cwd, so its existence checks and the eslint/tsc
+ * project boundary see the session's checkout.
  */
 
 // ---------------------------------------------------------------------------
@@ -37,15 +43,27 @@ export function resolveStateDir(env: Record<string, string | undefined> = proces
  *  names are tracked here so either mode is covered. */
 const EDITED_FILE_TOOLS: Record<string, true> = { write: true, edit: true, apply_patch: true };
 
-/** Extracts the file path a write/edit/apply_patch tool touched from its
- *  (normalized) tool-call/tool-result `input`, or null when the tool isn't
- *  one that edits a file or the event carries no usable `path`. Callers are
- *  responsible for skipping error results — this only looks at the shape of
- *  `input`. */
-export function collectEditedPath(toolName: string, input: Record<string, unknown> | undefined | null): string | null {
-  if (!EDITED_FILE_TOOLS[toolName]) return null;
-  const path = input?.path;
-  return typeof path === "string" && path.length > 0 ? path : null;
+/** The files a write/edit/apply_patch tool touched, resolved against `cwd`.
+ *  The runtime derives `path` (one file) or `paths` (a multi-file hashline
+ *  batch) from the edit payload; a write carries `path` itself. Empty when
+ *  the tool isn't one that edits a file or the event carries no usable path.
+ *  Callers are responsible for skipping error results — this only looks at
+ *  the shape of `input`. */
+export function collectEditedPaths(toolName: string, input: Record<string, unknown> | undefined | null, cwd: string): string[] {
+  if (!EDITED_FILE_TOOLS[toolName]) return [];
+  const raw: unknown[] = [];
+  if (typeof input?.path === "string") raw.push(input.path);
+  if (Array.isArray(input?.paths)) raw.push(...input.paths);
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const p of raw) {
+    if (typeof p !== "string" || p.length === 0) continue;
+    const path = isAbsolute(p) ? p : resolve(cwd, p);
+    if (seen.has(path)) continue;
+    seen.add(path);
+    paths.push(path);
+  }
+  return paths;
 }
 
 /** Builds the argv (script path followed by args) for the shared formatter
@@ -64,7 +82,11 @@ export interface ExecResult {
   code: number;
 }
 
-export type ExecFn = (command: string, args: string[]) => Promise<ExecResult>;
+export interface ExecOpts {
+  cwd: string;
+}
+
+export type ExecFn = (command: string, args: string[], opts: ExecOpts) => Promise<ExecResult>;
 
 export interface HookHandlerDeps {
   /** Runs a shared script and returns its stdout/stderr/exit code. */
@@ -119,14 +141,14 @@ export function createHandlers(
     return files;
   };
 
-  const flushFormat = async (sessionKey: string): Promise<void> => {
+  const flushFormat = async (sessionKey: string, cwd: string): Promise<void> => {
     const files = editedFilesBySession.get(sessionKey);
     if (!files || files.size === 0) return;
     const toFormat = [...files];
     files.clear();
     try {
       const [command, ...args] = buildFormatCommand(pluginRoot, toFormat);
-      const result = await deps.exec(command, args);
+      const result = await deps.exec(command, args, { cwd });
       const summary = result.stdout.trim();
       if (summary) deps.notify(summary);
     } catch {
@@ -134,11 +156,14 @@ export function createHandlers(
     }
   };
 
+  const cwdFor = (ctx?: MinimalHookContext) => ctx?.cwd ?? process.cwd();
+
   return {
     async sessionStart(_event, ctx) {
       try {
+        const cwd = cwdFor(ctx);
         const scriptPath = resolve(pluginRoot, "hooks/session-context.sh");
-        const result = await deps.exec(scriptPath, [ctx?.cwd ?? process.cwd()]);
+        const result = await deps.exec(scriptPath, [cwd], { cwd });
         const context = result.stdout.trim();
         if (context) deps.sendMessage(context);
       } catch {
@@ -148,17 +173,18 @@ export function createHandlers(
 
     async toolResult(event, ctx) {
       if (event.isError) return;
-      const path = collectEditedPath(event.toolName, event.input);
-      if (!path) return;
-      filesFor(ctx?.sessionManager?.getSessionId() ?? "default").add(path);
+      const paths = collectEditedPaths(event.toolName, event.input, cwdFor(ctx));
+      if (paths.length === 0) return;
+      const files = filesFor(ctx?.sessionManager?.getSessionId() ?? "default");
+      for (const path of paths) files.add(path);
     },
 
     async sessionStop(_event, ctx) {
-      await flushFormat(ctx?.sessionManager?.getSessionId() ?? "default");
+      await flushFormat(ctx?.sessionManager?.getSessionId() ?? "default", cwdFor(ctx));
     },
 
     async agentEnd(_event, ctx) {
-      await flushFormat(ctx?.sessionManager?.getSessionId() ?? "default");
+      await flushFormat(ctx?.sessionManager?.getSessionId() ?? "default", cwdFor(ctx));
     },
   };
 }
@@ -167,28 +193,21 @@ export function createHandlers(
 // OMP runtime wiring
 // ---------------------------------------------------------------------------
 
-async function execViaBunSpawn(command: string, args: string[], env: Record<string, string>): Promise<ExecResult> {
-  const proc = Bun.spawn([command, ...args], {
-    env: { ...process.env, ...env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-  return { stdout, stderr, code };
-}
-
-/**
- * Wraps whichever exec primitive the runtime offers so spawned scripts
- * always see KIT_PLUGIN_ROOT/KIT_STATE_DIR. `ExtensionAPI.exec`'s options
- * carry no `env` field and it never goes through a shell, so when running
- * through it the vars are passed via the POSIX `env` utility instead.
- */
-function buildExec(pi: ExtensionAPI, env: Record<string, string>): ExecFn {
-  if (typeof pi.exec !== "function") {
-    return (command, args) => execViaBunSpawn(command, args, env);
-  }
-  const assignments = Object.entries(env).map(([key, value]) => `${key}=${value}`);
-  return (command, args) => pi.exec("env", [...assignments, command, ...args]);
+/** Spawns a shared script with the session cwd and the kit env vars the
+ *  scripts read (KIT_PLUGIN_ROOT/KIT_STATE_DIR). Bun's spawn is used directly,
+ *  as the sibling plugins do, because `ExtensionAPI.exec` exposes neither an
+ *  `env` nor a `cwd` option. */
+function buildExec(env: Record<string, string>): ExecFn {
+  return async (command, args, opts) => {
+    const proc = Bun.spawn([command, ...args], {
+      cwd: opts.cwd,
+      env: { ...process.env, ...env },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+    return { stdout, stderr, code };
+  };
 }
 
 /**
@@ -206,7 +225,7 @@ export function registerHooks(pi: ExtensionAPI, pluginRoot: string): void {
     createHandlers(
       pluginRoot,
       {
-        exec: buildExec(pi, scriptEnv),
+        exec: buildExec(scriptEnv),
         sendMessage: (text) => pi.sendMessage(text, { deliverAs: "nextTurn" }),
         notify: (message) => {
           if (ctx.hasUI) ctx.ui.notify(message, "info");
