@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { readFileSync, readdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { EXIT, hasLegacyMarker, hasMarker } from "../lib/util.mjs";
 
 /**
@@ -71,19 +71,25 @@ const WRITE_TOOLS: Record<string, true> = { write: true, edit: true, apply_patch
 
 export interface GuardTarget {
   tool: string;
-  /** Every file the call touches; empty for the ask class. */
+  /** Every file the call touches, absolute; empty for the ask class. */
   paths: string[];
 }
 
 /** The runtime derives `path` (one file) or `paths` (a multi-file hashline
  *  batch) from the edit payload before `tool_call` fires; a write carries
  *  `path` itself. Both spellings are read so a batch that touches the board
- *  alongside source is still judged. */
-export function guardTarget(toolName: string, input: Record<string, unknown> | undefined | null): GuardTarget | null {
+ *  alongside source is still judged. Relative paths are relative to the
+ *  session cwd, which can sit below the stories root; they are made absolute
+ *  here so `story guard`, which resolves against the root, judges the file
+ *  the tool actually writes. */
+export function guardTarget(toolName: string, input: Record<string, unknown> | undefined | null, cwd: string): GuardTarget | null {
   if (WRITE_TOOLS[toolName]) {
     const paths = new Set<string>();
-    if (typeof input?.path === "string" && input.path.length > 0) paths.add(input.path);
-    if (Array.isArray(input?.paths)) for (const p of input.paths) if (typeof p === "string" && p.length > 0) paths.add(p);
+    const add = (p: unknown) => {
+      if (typeof p === "string" && p.length > 0) paths.add(isAbsolute(p) ? p : resolve(cwd, p));
+    };
+    add(input?.path);
+    if (Array.isArray(input?.paths)) for (const p of input.paths) add(p);
     return paths.size > 0 ? { tool: toolName, paths: [...paths] } : null;
   }
   if (toolName === "ask") return { tool: "ask", paths: [] };
@@ -199,7 +205,7 @@ export function createHandlers(pluginRoot: string, deps: StoriesHookDeps): Stori
       if (event.toolName === "bash") {
         return session ? { input: stampSessionEnv(event.input ?? {}, session) } : undefined;
       }
-      const target = guardTarget(event.toolName, event.input);
+      const target = guardTarget(event.toolName, event.input, ctx?.cwd ?? process.cwd());
       if (!target) return undefined;
       try {
         const opts = { cwd: root, ...(session ? { env: { [SESSION_ENV]: session } } : {}) };

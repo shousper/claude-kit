@@ -80,13 +80,17 @@ describe("planner model preflight", () => {
 
 describe("guardTarget", () => {
   it("collects path and paths for write/edit/apply_patch, a bare target for ask, and null otherwise", () => {
-    expect(guardTarget("write", { path: "/p/stories/a.md" })).toEqual({ tool: "write", paths: ["/p/stories/a.md"] });
-    expect(guardTarget("apply_patch", { path: "/p/a.md" })).toEqual({ tool: "apply_patch", paths: ["/p/a.md"] });
-    expect(guardTarget("edit", { input: "[src/x.ts#1A2B]\n...", paths: ["src/x.ts", "stories/st-a1b2.md"] })).toEqual({ tool: "edit", paths: ["src/x.ts", "stories/st-a1b2.md"] });
-    expect(guardTarget("edit", { path: "src/x.ts", paths: ["src/x.ts"] })).toEqual({ tool: "edit", paths: ["src/x.ts"] });
-    expect(guardTarget("edit", { content: "x" })).toBeNull();
-    expect(guardTarget("ask", { questions: [] })).toEqual({ tool: "ask", paths: [] });
-    expect(guardTarget("read", { path: "/p/a.md" })).toBeNull();
+    expect(guardTarget("write", { path: "/p/stories/a.md" }, "/p")).toEqual({ tool: "write", paths: ["/p/stories/a.md"] });
+    expect(guardTarget("apply_patch", { path: "/p/a.md" }, "/p")).toEqual({ tool: "apply_patch", paths: ["/p/a.md"] });
+    expect(guardTarget("edit", { input: "[src/x.ts#1A2B]\n...", paths: ["src/x.ts", "stories/st-a1b2.md"] }, "/p")).toEqual({ tool: "edit", paths: ["/p/src/x.ts", "/p/stories/st-a1b2.md"] });
+    expect(guardTarget("edit", { path: "src/x.ts", paths: ["src/x.ts"] }, "/p")).toEqual({ tool: "edit", paths: ["/p/src/x.ts"] });
+    expect(guardTarget("edit", { content: "x" }, "/p")).toBeNull();
+    expect(guardTarget("ask", { questions: [] }, "/p")).toEqual({ tool: "ask", paths: [] });
+    expect(guardTarget("read", { path: "/p/a.md" }, "/p")).toBeNull();
+  });
+
+  it("resolves a relative path against the session cwd, so a cwd below the root still names the board file", () => {
+    expect(guardTarget("write", { path: "../stories/st-a1b2.md" }, "/p/src")).toEqual({ tool: "write", paths: ["/p/stories/st-a1b2.md"] });
   });
 });
 
@@ -170,7 +174,7 @@ describe("createHandlers", () => {
     const handlers = createHandlers(PLUGIN_ROOT, {
       exec: async (_command, args) => {
         calls.push(args);
-        const denied = args.includes("stories/st-a1b2.md");
+        const denied = args.includes(join(dir, "stories/st-a1b2.md"));
         return denied
           ? { stdout: JSON.stringify({ allow: false, reason: "use story update" }), stderr: "", code: 2 }
           : { stdout: JSON.stringify({ allow: true }), stderr: "", code: 0 };
@@ -181,8 +185,8 @@ describe("createHandlers", () => {
     const r = await handlers.toolCall({ toolName: "edit", input: { input: "...", paths: ["src/x.ts", "stories/st-a1b2.md", "src/y.ts"] } }, ctx(dir));
     expect(r).toEqual({ block: true, reason: "use story update" });
     expect(calls).toEqual([
-      ["guard", "--tool", "edit", "--path", "src/x.ts", "--json"],
-      ["guard", "--tool", "edit", "--path", "stories/st-a1b2.md", "--json"],
+      ["guard", "--tool", "edit", "--path", join(dir, "src/x.ts"), "--json"],
+      ["guard", "--tool", "edit", "--path", join(dir, "stories/st-a1b2.md"), "--json"],
     ]);
   });
 
