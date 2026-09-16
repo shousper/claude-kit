@@ -3,6 +3,10 @@ import { access, readdir, readFile, stat } from "fs/promises";
 import { join } from "path";
 import { createWorkspace, encodeCwd, type Workspace } from "./workspace-manager";
 
+// createWorkspace installs real OAuth credentials from the macOS Keychain and
+// ~/.claude.json, so these run only where evals run (same gate as config-dir).
+const RUN_EVALS = process.env.RUN_EVALS === "1";
+
 let workspaces: Workspace[] = [];
 
 afterEach(async () => {
@@ -16,7 +20,7 @@ async function exists(path: string): Promise<boolean> {
   return access(path).then(() => true, () => false);
 }
 
-describe("createWorkspace", () => {
+describe.skipIf(!RUN_EVALS)("createWorkspace", () => {
   it("creates a workspace with fixture files and git repo", async () => {
     const ws = await createWorkspace();
     workspaces.push(ws);
