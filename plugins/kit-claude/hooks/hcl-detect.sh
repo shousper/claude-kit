@@ -20,7 +20,9 @@ hcl_tool="${script_dir}/shared/hcl-tool.sh"
 # Prune scratch buckets left by dead sessions/agents (within-session leftovers
 # self-heal on the next Stop). Runs regardless of cwd, before the early-exits.
 state_dir="$(kit_state_dir)"
-[ -d "$state_dir" ] && find "$state_dir" -name 'touched-*.txt' -mtime +1 -delete 2>/dev/null || true
+if [ -d "$state_dir" ]; then
+  find "$state_dir" -name 'touched-*.txt' -mtime +1 -delete 2>/dev/null || true
+fi
 
 # Already decided? stay silent.
 [ -n "$("$hcl_tool" get "$cwd")" ] && exit 0
